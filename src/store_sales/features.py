@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import logging
+
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+
+logger = logging.getLogger(__name__)
+
+
+class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
+    """Engineer time-series features for store sales forecasting.
+
+    Creates date-based features, lag features, rolling statistics,
+    and encodes categorical variables.
+    """
+
+    def __init__(
+        self,
+        date_col: str = "date",
+        store_col: str = "store_nbr",
+        family_col: str = "family",
+        onpromotion_col: str = "onpromotion",
+        date_features: list[str] | None = None,
+        drop_cols: list[str] | None = None,
+        lag_config: list[list] | None = None,
+        rolling_config: list[dict] | None = None,
+    ):
+        self.date_col = date_col
+        self.store_col = store_col
+        self.family_col = family_col
+        self.onpromotion_col = onpromotion_col
+        self.date_features = date_features or []
+        self.drop_cols = drop_cols or []
+        self.lag_config = lag_config or []
+        self.rolling_config = rolling_config or []
+
+    def fit(self, X: pd.DataFrame, y=None) -> TimeSeriesFeatureEngineer:
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X = X.copy()
+
+        # --- Date features ---
+        if self.date_col in X.columns:
+            dt = pd.to_datetime(X[self.date_col])
+            feat_map = {
+                "year": dt.dt.year,
+                "month": dt.dt.month,
+                "dayofweek": dt.dt.dayofweek,
+                "dayofmonth": dt.dt.day,
+                "quarter": dt.dt.quarter,
+                "weekofyear": dt.dt.isocalendar().week.astype(int),
+                "dayofyear": dt.dt.dayofyear,
+                "is_weekend": (dt.dt.dayofweek >= 5).astype(int),
+            }
+            for feat in self.date_features:
+                if feat in feat_map:
+                    X[feat] = feat_map[feat]
+
+        # --- Categorical encoding (LightGBM rejects str/object dtype) ---
+        for col in [self.store_col, self.family_col]:
+            if col in X.columns:
+                X[col] = X[col].astype("category")
+        for col in X.columns:
+            if str(X[col].dtype) in ("object", "str", "string"):
+                X[col] = X[col].astype("category")
+
+        # --- onpromotion ---
+        if self.onpromotion_col in X.columns:
+            X[self.onpromotion_col] = X[self.onpromotion_col].fillna(0).astype(int)
+
+        # --- dcoilwtico (oil price) imputation ---
+        if "dcoilwtico" in X.columns:
+            X["dcoilwtico"] = X["dcoilwtico"].ffill().bfill()
+
+        # --- Drop unwanted columns ---
+        cols_to_drop = [c for c in self.drop_cols if c in X.columns]
+        if self.date_col in X.columns:
+            cols_to_drop.append(self.date_col)
+        X = X.drop(columns=cols_to_drop, errors="ignore")
+
+        return X
+
+    def create_lag_features(
+        self,
+        train: pd.DataFrame,
+        test: pd.DataFrame,
+        target_col: str = "sales",
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Create lag and rolling features using training data.
+
+        Must be called on the full historical dataset *before* train/val split
+        to avoid lookahead leakage.
+        """
+        n_train = len(train)
+        combined = pd.concat([train, test], axis=0, ignore_index=True)
+        combined["_is_train"] = [True] * n_train + [False] * (len(combined) - n_train)
+        combined = combined.sort_values([self.store_col, self.family_col, self.date_col])
+
+        group_cols = [self.store_col, self.family_col]
+
+        # --- Lag features ---
+        for col, lags in self.lag_config:
+            for lag in lags:
+                combined[f"{col}_lag_{lag}"] = combined.groupby(group_cols)[col].shift(lag)
+
+        # --- Rolling features ---
+        for rc in self.rolling_config:
+            col = rc["col"]
+            windows = rc.get("windows", [])
+            aggs = rc.get("aggs", ["mean"])
+            for w in windows:
+                for agg in aggs:
+                    roll = combined.groupby(group_cols)[col].transform(
+                        lambda s, w=w, agg=agg: s.shift(1).rolling(w, min_periods=1).agg(agg)
+                    )
+                    combined[f"{col}_roll_{w}_{agg}"] = roll
+
+        # Drop train rows with no lag history (first-row-per-group). Test rows
+        # are kept even if lags are NaN (target is unknown for the horizon); we
+        # forward-fill from the last known value so the model still has features.
+        lag_cols = [c for c in combined.columns if "lag_" in c or "roll_" in c]
+        train_mask = combined["_is_train"]
+        combined = combined[(~train_mask) | (combined[lag_cols].notna().any(axis=1))].copy()
+        for col in lag_cols:
+            combined[col] = combined.groupby(group_cols)[col].ffill()
+            combined[col] = combined[col].fillna(0)
+
+        # Split back — filter by _is_train flag (NOT positional, since dropna
+        # removed first-row-per-group train rows, scrambling positional order).
+        # Train keeps its original 0..n_train-1 index so it aligns with y.
+        train_feat = combined[combined["_is_train"]].drop(columns=["_is_train"])
+        test_feat = combined[~combined["_is_train"]].drop(columns=["_is_train"])
+        # Preserve a row-order proxy so callers can rejoin to the original test
+        # frame (which is sorted by id). The combined frame was sorted by
+        # (store, family, date); we expose that order via the reset RangeIndex.
+        test_feat = test_feat.reset_index(drop=True)
+
+        new_cols = [
+            c
+            for c in combined.columns
+            if "lag_" in c
+            or "roll_" in c
+            or "transactions" in c
+            or "is_holiday" in c
+            or "dcoilwtico" in c
+            or "onpromotion" in c
+            or c in self.date_features
+        ]
+        logger.info("  Lag features added: %d new columns", len(new_cols))
+        return train_feat, test_feat
+
+
+def make_features(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    cfg: dict,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Convenience: build feature engineer from config and apply."""
+    feat_cfg = cfg["features"]
+    engineer = TimeSeriesFeatureEngineer(
+        date_col=feat_cfg.get("date_col", "date"),
+        store_col=feat_cfg.get("store_col", "store_nbr"),
+        family_col=feat_cfg.get("family_col", "family"),
+        onpromotion_col=feat_cfg.get("onpromotion_col", "onpromotion"),
+        date_features=feat_cfg.get("date_features", []),
+        drop_cols=feat_cfg.get("drop_cols", []),
+        lag_config=feat_cfg.get("lag_features", []),
+        rolling_config=feat_cfg.get("rolling_features", []),
+    )
+
+    train_feat, test_feat = engineer.create_lag_features(train, test, cfg["competition"]["target"])
+    train_feat = engineer.transform(train_feat)
+    test_feat = engineer.transform(test_feat)
+
+    return train_feat, test_feat
