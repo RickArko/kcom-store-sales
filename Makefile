@@ -7,7 +7,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= "baseline: LightGBM with lag/rolling features"
 
-.PHONY: all install download train train-nixtla train-linear benchmark submit-best predict submit test plot-daily lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear benchmark benchmark-linear submit-best predict submit test plot-daily lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -98,6 +98,9 @@ submit:
 
 test:
 	@uv run pytest tests/ -v $(ARGS)
+
+benchmark-linear:
+	@uv run python scripts/compare_models.py $(ARGS)
 
 plot-daily:
 	@uv run python scripts/plot_daily_aggregate.py $(ARGS)

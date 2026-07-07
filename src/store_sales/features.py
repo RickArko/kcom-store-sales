@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -26,6 +27,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         lag_config: list[list] | None = None,
         rolling_config: list[dict] | None = None,
         ref_date: str | None = None,
+        fourier_config: dict[str, list[int]] | None = None,
     ):
         self.date_col = date_col
         self.store_col = store_col
@@ -36,6 +38,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         self.lag_config = lag_config or []
         self.rolling_config = rolling_config or []
         self.ref_date = pd.Timestamp(ref_date) if ref_date else None
+        self.fourier_config = fourier_config or {}
 
     def fit(self, X: pd.DataFrame, y=None) -> TimeSeriesFeatureEngineer:
         if self.date_col in X.columns and self.ref_date is None:
@@ -63,6 +66,23 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
             for feat in self.date_features:
                 if feat in feat_map:
                     X[feat] = feat_map[feat]
+
+        # --- Fourier features ---
+        if self.date_col in X.columns and self.fourier_config:
+            dt = pd.to_datetime(X[self.date_col])
+            dt_vals = {
+                "dayofyear": (365.25, dt.dt.dayofyear),
+                "dayofweek": (7, dt.dt.dayofweek),
+                "month": (12, dt.dt.month),
+            }
+            for col, harmonics in self.fourier_config.items():
+                if col not in dt_vals:
+                    continue
+                period, vals = dt_vals[col]
+                for h in harmonics:
+                    angle = 2 * np.pi * h * vals / period
+                    X[f"fourier_{col}_sin_{h}"] = np.sin(angle)
+                    X[f"fourier_{col}_cos_{h}"] = np.cos(angle)
 
         # --- Categorical encoding (LightGBM rejects str/object dtype) ---
         for col in [self.store_col, self.family_col]:
@@ -174,6 +194,7 @@ def make_features(
         drop_cols=feat_cfg.get("drop_cols", []),
         lag_config=feat_cfg.get("lag_features", []),
         rolling_config=feat_cfg.get("rolling_features", []),
+        fourier_config=feat_cfg.get("fourier_features", None),
     )
 
     train_feat, test_feat = engineer.create_lag_features(train, test, cfg["competition"]["target"])

@@ -19,11 +19,13 @@ import logging
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, TweedieRegressor
 
 from store_sales.data import load_config, load_data, merge_tables, timeseries_split
 from store_sales.features import TimeSeriesFeatureEngineer
+from store_sales.metrics import rmsle
 from store_sales.models import TimeSeriesModel, save_submission
 from store_sales.tracking import track_experiment
 
@@ -36,9 +38,15 @@ logger = logging.getLogger(__name__)
 _CAT_COLS = ["store_nbr", "family"]
 
 
-def _build_model(model_cfg: dict) -> Ridge:
+def _build_model(model_cfg: dict) -> Ridge | TweedieRegressor:
+    linear_type = model_cfg.get("linear_type", "ridge")
     alpha = model_cfg.get("alpha", 1.0)
     fit_intercept = model_cfg.get("fit_intercept", True)
+    if linear_type == "tweedie":
+        power = model_cfg.get("power", 1.5)
+        return TweedieRegressor(
+            power=power, alpha=alpha, fit_intercept=fit_intercept, random_state=42
+        )
     return Ridge(alpha=alpha, fit_intercept=fit_intercept, random_state=42)
 
 
@@ -112,8 +120,16 @@ def main() -> None:
     # -- 2. Feature engineering (lags need full history) ---------------
     logger.info("[2/6] Engineering features (lags + date features) ...")
     t0 = time.time()
+    model_cfg = cfg["model"]
     target_col = cfg["competition"]["target"]
-    y_train_full = train[target_col].copy()
+    target_transform = model_cfg.get("target_transform", "raw")
+    y_train_full_raw = train[target_col].copy()
+    if target_transform == "log1p":
+        train["log_sales"] = np.log1p(train[target_col])
+        test["log_sales"] = 0
+        y_train_full = train["log_sales"].copy()
+    else:
+        y_train_full = y_train_full_raw.copy()
     ref_date = train["date"].min()
     feat_cfg = cfg["features"]
     engineer = TimeSeriesFeatureEngineer(
@@ -125,6 +141,7 @@ def main() -> None:
         drop_cols=feat_cfg.get("drop_cols", []),
         lag_config=feat_cfg.get("lag_features", []),
         rolling_config=feat_cfg.get("rolling_features", []),
+        fourier_config=feat_cfg.get("fourier_features", None),
         ref_date=ref_date,
     )
     X_train_lag, X_test_feat = engineer.create_lag_features(train, test, target_col)
@@ -144,7 +161,7 @@ def main() -> None:
     val_period = ts_cfg.get("test_period_days", 16)
     X_train_raw, X_val_raw = timeseries_split(X_train_lag, val_period)
     y_train = y_train_full.loc[X_train_raw.index]
-    y_val = y_train_full.loc[X_val_raw.index]
+    y_val_raw = y_train_full_raw.loc[X_val_raw.index]
     X_train = engineer.transform(X_train_raw)
     X_val = engineer.transform(X_val_raw)
     X_test_feat = engineer.transform(X_test_feat)
@@ -183,24 +200,38 @@ def main() -> None:
     logger.info("  Done (%.1fs). Train: %s", time.time() - t0_oh, X_train.shape)
 
     # -- 5. Build & train model ----------------------------------------
-    logger.info("[5/6] Training Ridge regression ...")
-    model = _build_model(cfg["model"])
+    linear_label = model_cfg.get("linear_type", "ridge")
+    logger.info("[5/6] Training %s regression ...", linear_label.title())
+    model = _build_model(model_cfg)
 
     with track_experiment(cfg, run_name=args.run_name) as run:
         ts_model = TimeSeriesModel(model)
-        ts_model.fit(X_train, y_train, X_val, y_val)
+        ts_model.fit(X_train, y_train)
+
+        # Manual val evaluation (handles target_transform)
+        val_preds_log = ts_model.fold_models_[0].predict(X_val[ts_model.feature_names_])
+        if target_transform == "log1p":
+            val_preds_raw = np.expm1(val_preds_log)
+        else:
+            val_preds_raw = val_preds_log
+        val_preds_clamped = np.maximum(val_preds_raw, 0)
+        val_score = rmsle(y_val_raw.values, val_preds_clamped)
+        ts_model.overall_val_score_ = val_score
+        ts_model.valid_scores_ = [val_score]
 
         run.log_metrics(
             {
-                "val_rmsle": round(ts_model.overall_val_score_, 6),
+                "val_rmsle": round(val_score, 6),
                 "n_features": X_train.shape[1],
             }
         )
         run.log_params(
             {
                 "model_type": cfg["model"]["type"],
-                "alpha": cfg["model"]["alpha"],
-                "fit_intercept": cfg["model"]["fit_intercept"],
+                "linear_type": linear_label,
+                "target_transform": target_transform,
+                "alpha": model_cfg.get("alpha"),
+                "fit_intercept": model_cfg.get("fit_intercept"),
                 "val_period_days": val_period,
             }
         )
@@ -211,7 +242,12 @@ def main() -> None:
 
         # -- 6. Generate submission ------------------------------------
         logger.info("[6/6] Generating predictions ...")
-        test_preds = ts_model.predict(X_test_feat)
+        test_preds_log = ts_model.predict(X_test_feat)
+        if target_transform == "log1p":
+            test_preds = np.expm1(test_preds_log)
+        else:
+            test_preds = test_preds_log
+        test_preds = np.maximum(test_preds, 0)
         if test_ids is not None and len(test_ids) == len(test_preds):
             ids = test_ids
         else:
@@ -223,7 +259,7 @@ def main() -> None:
             str(Path(cfg["paths"]["submissions"]) / "submission.csv"),
         )
 
-        logger.info("  Val RMSLE: %.6f", ts_model.overall_val_score_)
+        logger.info("  Val RMSLE: %.6f", val_score)
 
     elapsed = time.time() - t0
     logger.info("Done in %.1fs", elapsed)
