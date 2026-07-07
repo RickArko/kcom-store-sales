@@ -23,6 +23,7 @@ Importing this module without them raises a clear ``ImportError``.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any
 
 import numpy as np
@@ -31,6 +32,8 @@ import pandas as pd
 from store_sales.metrics import rmsle
 
 logger = logging.getLogger(__name__)
+# AutoETS triggers harmless ACF divide-by-zero warnings on zero-variance series
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
 
 try:
     from statsforecast import StatsForecast
@@ -114,7 +117,7 @@ def to_long(
 
     keep_hist = [_ID_COL, _TIME_COL, _TARGET_COL, store_col, family_col, "onpromotion"]
     keep_hist += [c for c in ("dcoilwtico", "is_holiday", "transactions") if c in history.columns]
-    keep_fut = [_ID_COL, _TIME_COL, store_col, family_col, "onpromotion"]
+    keep_fut = [_ID_COL, _TIME_COL, store_col, family_col, "onpromotion", "id"]
     keep_fut += [c for c in ("dcoilwtico", "is_holiday", "transactions") if c in future.columns]
 
     history = history[[c for c in keep_hist if c in history.columns]]

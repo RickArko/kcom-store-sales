@@ -6,13 +6,13 @@ Forecast store sales in Ecuador using time-series features, holiday effects, oil
 ## Quick Start
 
 ```bash
-make install          # uv sync + kaggle auth (one-time)
+make install          # uv sync (dev + nixtla extras) + kaggle auth (one-time)
 make download         # fetch competition data (one-time)
-make train            # train LightGBM → submission.csv
-make submit           # upload to Kaggle + show leaderboard
+make benchmark        # train LightGBM + nixtla stats baselines, compare
+make submit-best      # submit the lower-RMSLE model to Kaggle
 ```
 
-**Happy path:** `make all`
+**Happy path:** `make all` (= install → download → benchmark → submit-best)
 
 ## Pipeline
 
@@ -42,16 +42,19 @@ make test           # pytest
 
 ```bash
 make train CONFIG=config/baseline.yaml RUN_NAME=baseline
-make train CONFIG=config/experiments/my_idea.yaml RUN_NAME=v001
+make train-nixtla CONFIG=config/nixtla.yaml RUN_NAME=nixtla-stats
 uv run python scripts/compare.py
 ```
+
+Create your own config under `config/experiments/` (copy `baseline.yaml` and
+edit features/model hyperparams), then `make train CONFIG=config/experiments/your_config.yaml`.
 
 ## Repository Structure
 
 ```
-config/               # YAML configs (features, model, CV)
-src/store_sales/       # data.py, features.py, models.py, metrics.py, tracking.py
-scripts/               # train.py, predict.py, compare.py
+config/               # YAML configs (features, model, CV) — baseline.yaml, nixtla.yaml, experiments/
+src/store_sales/       # data.py, features.py, models.py, metrics.py, tracking.py, nixtla_pipeline.py
+scripts/               # train.py, train_nixtla.py, predict.py, compare.py, pick_best.py
 tests/                 # unit tests
 docs/                  # experiment reports
 outputs/runs/          # timestamped run artifacts

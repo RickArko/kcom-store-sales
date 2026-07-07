@@ -8,9 +8,12 @@ All Python invocations **must** be prefixed with `uv run`.
 
 | Command | Purpose |
 |---|---|
-| `make install` | `uv sync --extra dev` + editable install + kaggle auth |
+| `make install` | `uv sync --extra dev --extra nixtla` + editable install + kaggle auth |
 | `make download` | Fetch competition CSVs into `data/` |
-| `make train CONFIG=config/foo.yaml RUN_NAME=bar` | Train model |
+| `make train CONFIG=config/foo.yaml RUN_NAME=bar` | Train LightGBM model |
+| `make train-nixtla CONFIG=config/nixtla.yaml RUN_NAME=bar` | Train nixtla stats baseline |
+| `make benchmark` | Train both LightGBM + nixtla, print comparison table |
+| `make submit-best` | Pick lowest-RMSLE run, submit to Kaggle |
 | `make predict` | `uv run python scripts/predict.py $(ARGS)` |
 | `make test` | `uv run pytest tests/ -v` |
 | `make lint` | `ruff check src/ scripts/ tests/` |
@@ -22,9 +25,10 @@ Verification: `make lint && make format && make test`.
 
 ## Architecture
 
-- **Package** `src/store_sales/`: `data.py` (loaders + merges), `features.py` (`TimeSeriesFeatureEngineer` with lags/rolling/date features), `models.py` (`TimeSeriesModel`), `metrics.py` (`rmsle`), `tracking.py` (run logger).
+- **Package** `src/store_sales/`: `data.py` (loaders + merges), `features.py` (`TimeSeriesFeatureEngineer` with lags/rolling/date features), `models.py` (`TimeSeriesModel`), `metrics.py` (`rmsle`), `tracking.py` (run logger), `nixtla_pipeline.py` (Nixtla long-format stats/ML baselines).
 - **Data flow**: `load_data()` returns dict of tables → `merge_tables()` joins stores/oil/holidays/transactions → `create_lag_features()` builds lags/rolling on sorted store-family history → `timeseries_split()` holds last N days for validation → `TimeSeriesModel.fit()` trains on pre-split data.
-- **Config-driven**: YAML in `config/` controls features, model hyperparams, time-series split.
+- **Nixtla data flow**: `merge_tables()` → `to_long()` reshapes to `unique_id="{store}_{family}", ds, y` → `cross_validate()` scores stats models (SeasonalNaive/Theta/AutoETS) → `fit_predict()` generates forecast → `to_submission()` pivots back to Kaggle `id, sales` layout.
+- **Config-driven**: YAML in `config/` controls features, model hyperparams, time-series split. `config/baseline.yaml` (LightGBM), `config/nixtla.yaml` (stats), `config/experiments/*` (variants).
 - **Each `make train`** creates `outputs/runs/<timestamp>_<name>/` with frozen `config.yaml`, `metrics.json`, `models/model.joblib`, and `submission.csv`.
 
 ## Conventions

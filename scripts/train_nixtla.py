@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+import warnings
 from pathlib import Path
 
 from store_sales.data import load_config, load_data, merge_tables
@@ -29,6 +30,8 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-7s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+# AutoETS triggers harmless ACF divide-by-zero warnings on zero-variance series
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,17 +102,30 @@ def main() -> None:
 
     # -- 4. Fit on full history + generate submission --------------------
     logger.info("[4/4] Fitting + predicting ...")
+    # If CV ran, only fit the best model (avoids refitting slow models like AutoETS)
+    fit_cfg = model_kind_cfg
+    if cv_scores is not None:
+        best_model = cv_scores.index[0]
+        best_alias = best_model
+        fit_cfg = {
+            **model_kind_cfg,
+            "models": [
+                m for m in nx_cfg.get("models", []) if m.get("alias", m["name"]) == best_alias
+            ],
+        }
+        logger.info("  Fitting only best model: %s", best_model)
+    else:
+        best_model = None
     forecast = fit_predict(
         history,
         future,
-        model_kind_cfg,
+        fit_cfg,
         horizon=horizon,
         freq=freq,
         season_length=season_length,
         n_jobs=n_jobs,
     )
 
-    best_model = cv_scores.index[0] if cv_scores is not None else None
     submission = to_submission(future, forecast, model_col=best_model)
     logger.info("  Submission: %d rows", len(submission))
 
