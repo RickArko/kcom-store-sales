@@ -12,7 +12,7 @@ TOKEN_FILE := .kaggle/access_token
 CONFIG          ?= config/baseline.yaml
 RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
-SUBMISSION_MSG  ?= "baseline: LightGBM with lag/rolling features"
+SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
 .PHONY: all install download train train-nixtla train-linear benchmark benchmark-linear benchmark-all submit-best predict submit test plot-daily lint format format-fix clean
 
