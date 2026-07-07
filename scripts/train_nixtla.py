@@ -141,6 +141,7 @@ def main() -> None:
                 "horizon": horizon,
                 "n_models": len(nx_cfg.get("models", [])),
                 "best_model": best_model,
+                "run_scope": cfg.get("run_scope", "full"),
             }
         )
 

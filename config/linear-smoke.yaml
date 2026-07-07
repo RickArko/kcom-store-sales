@@ -1,3 +1,5 @@
+run_scope: smoke
+
 competition:
   name: store-sales-time-series-forecasting
   url: https://www.kaggle.com/competitions/store-sales-time-series-forecasting

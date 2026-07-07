@@ -120,6 +120,7 @@ def main() -> None:
                 "model_type": cfg["model"]["type"],
                 "n_estimators": cfg["model"]["n_estimators"],
                 "val_period_days": val_period,
+                "run_scope": cfg.get("run_scope", "full"),
             }
         )
 

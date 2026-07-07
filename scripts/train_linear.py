@@ -233,6 +233,7 @@ def main() -> None:
                 "alpha": model_cfg.get("alpha"),
                 "fit_intercept": model_cfg.get("fit_intercept"),
                 "val_period_days": val_period,
+                "run_scope": cfg.get("run_scope", "full"),
             }
         )
 

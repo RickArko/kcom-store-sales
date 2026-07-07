@@ -1,0 +1,24 @@
+# Benchmark experiment suite.
+# Each entry: label (display name), config (path to model YAML), script (training script stem).
+# `script` maps to scripts/{script}.py
+
+experiments:
+  - label: "Ridge (raw)"
+    config: config/linear.yaml
+    script: train_linear
+
+  - label: "Log-Ridge"
+    config: config/linear-log.yaml
+    script: train_linear
+
+  - label: "Log-Ridge+Fourier"
+    config: config/linear-log-fourier.yaml
+    script: train_linear
+
+  - label: "LightGBM"
+    config: config/baseline.yaml
+    script: train
+
+  - label: "Nixtla"
+    config: config/nixtla.yaml
+    script: train_nixtla

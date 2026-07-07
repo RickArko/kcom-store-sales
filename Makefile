@@ -1,13 +1,16 @@
+# Load optional .env (settings here are overridden by command-line args)
+-include .env
+
 COMPETITION := store-sales-time-series-forecasting
 DATA_DIR   := data
 TOKEN_FILE := .kaggle/access_token
 
-CONFIG          ?= config/config.yaml
+CONFIG          ?= config/baseline.yaml
 RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= "baseline: LightGBM with lag/rolling features"
 
-.PHONY: all install download train train-nixtla train-linear benchmark benchmark-linear submit-best predict submit test plot-daily lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear benchmark benchmark-linear benchmark-all submit-best predict submit test plot-daily lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -70,10 +73,10 @@ benchmark:
 	@echo "========================================================"
 	@echo "  Benchmark results (sorted by val_rmsle, lower = better)"
 	@echo "========================================================"
-	@uv run python scripts/compare.py --sort-by val_rmsle
+	@uv run python scripts/compare.py --sort-by val_rmsle --scope full
 
 submit-best:
-	@uv run python scripts/pick_best.py
+	@uv run python scripts/pick_best.py --scope full
 	@$(MAKE) submit
 
 predict:
@@ -101,6 +104,18 @@ test:
 
 benchmark-linear:
 	@uv run python scripts/compare_models.py $(ARGS)
+
+benchmark-all:
+	@echo "========================================================"
+	@echo "  Full benchmark: all model variants"
+	@echo "  (skips existing runs; use FORCE=1 to re-train all)"
+	@echo "========================================================"
+	@uv run python scripts/compare_models.py --experiments config/benchmark.yaml $(if $(FORCE),--no-skip-existing,) $(ARGS)
+	@echo ""
+	@echo "========================================================"
+	@echo "  Results summary (sorted by val_rmsle)"
+	@echo "========================================================"
+	@uv run python scripts/compare.py --sort-by val_rmsle --scope full
 
 plot-daily:
 	@uv run python scripts/plot_daily_aggregate.py $(ARGS)

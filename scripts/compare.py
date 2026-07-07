@@ -1,8 +1,11 @@
 """Compare all experiment runs in a table.
 
+Reads metrics.json from each run directory under outputs/runs/.
+
 Usage:
     uv run python scripts/compare.py
     uv run python scripts/compare.py --sort-by val_rmsle
+    uv run python scripts/compare.py --scope full
 """
 
 from __future__ import annotations
@@ -24,10 +27,16 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Sort ascending (lower is better for error)",
     )
+    parser.add_argument(
+        "--scope",
+        type=str,
+        default=None,
+        help="Filter by run_scope (e.g. 'full', 'smoke'; default: show all)",
+    )
     return parser.parse_args()
 
 
-def _load_runs(runs_dir: Path) -> list[dict]:
+def _load_runs(runs_dir: Path, scope: str | None = None) -> list[dict]:
     rows = []
     if not runs_dir.exists():
         return rows
@@ -43,6 +52,9 @@ def _load_runs(runs_dir: Path) -> list[dict]:
 
         meta = data.get("metrics", {})
         params = data.get("params", {})
+        run_scope = params.get("run_scope")
+        if scope is not None and run_scope is not None and run_scope != scope:
+            continue
         submissions_exist = (run_dir / "submission.csv").exists()
 
         rows.append(
@@ -51,9 +63,9 @@ def _load_runs(runs_dir: Path) -> list[dict]:
                 "val_rmsle": meta.get("val_rmsle"),
                 "n_features": meta.get("n_features"),
                 "model_type": params.get("model_type"),
-                "n_estimators": params.get("n_estimators"),
+                "run_scope": run_scope or "?",
                 "elapsed_seconds": round(data.get("elapsed_seconds", 0), 1),
-                "submission_exists": submissions_exist,
+                "submission": "✓" if submissions_exist else "—",
                 "path": str(run_dir),
             }
         )
@@ -64,10 +76,11 @@ def _load_runs(runs_dir: Path) -> list[dict]:
 def main() -> None:
     args = parse_args()
     runs_dir = Path(args.runs_dir)
-    rows = _load_runs(runs_dir)
+    rows = _load_runs(runs_dir, scope=args.scope)
 
     if not rows:
-        print("No experiment runs found.")
+        filter_msg = f" (scope={args.scope})" if args.scope else ""
+        print(f"No experiment runs found{filter_msg}.")
         return
 
     df = pd.DataFrame(rows)
@@ -75,7 +88,7 @@ def main() -> None:
         df = df.sort_values(args.sort_by, ascending=args.ascending, na_position="last")
 
     pd.set_option("display.max_columns", None)
-    pd.set_option("display.width", 140)
+    pd.set_option("display.width", 160)
     pd.set_option("display.colheader_justify", "right")
     print(df.to_string(index=False))
 
