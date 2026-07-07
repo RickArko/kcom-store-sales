@@ -28,6 +28,12 @@ def parse_args() -> argparse.Namespace:
         default="full",
         help="Filter by run_scope (default: full). Set to 'all' to skip filtering.",
     )
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        default=None,
+        help="Filter by model_type (e.g. 'toto', 'lightgbm'; default: all)",
+    )
     return parser.parse_args()
 
 
@@ -49,6 +55,9 @@ def main() -> None:
         params = data.get("params", {})
         run_scope = params.get("run_scope", None)
         if args.scope != "all" and run_scope is not None and run_scope != args.scope:
+            continue
+        model_type = params.get("model_type", "?")
+        if args.model_type is not None and model_type != args.model_type:
             continue
         rmsle = data.get("metrics", {}).get("val_rmsle")
         if rmsle is None:

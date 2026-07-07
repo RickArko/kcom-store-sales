@@ -4,6 +4,7 @@
 # Tell uv exactly where the project venv is (avoids stale VIRTUAL_ENV)
 UV_PROJECT_ENVIRONMENT ?= .venv
 export UV_PROJECT_ENVIRONMENT
+unexport VIRTUAL_ENV  # stale pointer from shell; let uv use UV_PROJECT_ENVIRONMENT
 
 COMPETITION := store-sales-time-series-forecasting
 DATA_DIR   := data
@@ -14,7 +15,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear benchmark benchmark-linear benchmark-all submit-best predict submit test plot-daily lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare submit-best submit-toto predict submit test plot-daily lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -67,20 +68,34 @@ train-nixtla:
 train-linear:
 	@uv run python scripts/train_linear.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
 
+train-toto:
+	@uv run python scripts/train_toto.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
+
 benchmark:
 	@echo "========================================================"
-	@echo "  Benchmark: LightGBM baseline vs Nixtla stats baseline"
+	@echo "  Benchmark: LightGBM + Nixtla + TOTO"
 	@echo "========================================================"
 	@uv run python scripts/train.py --config config/baseline.yaml --run-name bench-lightgbm
 	@uv run python scripts/train_nixtla.py --config config/nixtla.yaml --run-name bench-nixtla
+	@$(MAKE) benchmark-toto
 	@echo ""
 	@echo "========================================================"
 	@echo "  Benchmark results (sorted by val_rmsle, lower = better)"
 	@echo "========================================================"
 	@uv run python scripts/compare.py --sort-by val_rmsle --scope full
 
+benchmark-toto:
+	@echo "========================================================"
+	@echo "  TOTO zero-shot forecast"
+	@echo "========================================================"
+	@uv run python scripts/train_toto.py --config config/toto.yaml --run-name bench-toto
+
 submit-best:
 	@uv run python scripts/pick_best.py --scope full
+	@$(MAKE) submit
+
+submit-toto:
+	@uv run python scripts/pick_best.py --scope full --model-type toto
 	@$(MAKE) submit
 
 predict:
@@ -109,6 +124,9 @@ test:
 benchmark-linear:
 	@uv run python scripts/compare_models.py $(ARGS)
 
+compare:
+	@uv run python scripts/compare.py --sort-by val_rmsle --scope full $(ARGS)
+
 benchmark-all:
 	@echo "========================================================"
 	@echo "  Full benchmark: all model variants"
@@ -134,7 +152,7 @@ format-fix:
 	@uv run python -m ruff format src/ scripts/ tests/
 
 .uv_sync: pyproject.toml uv.lock
-	uv sync --extra dev --extra nixtla
+	uv sync --extra dev --extra nixtla --extra toto
 	@touch .uv_sync
 
 _ensure_kaggle_token:

@@ -8,16 +8,19 @@ All Python invocations **must** be prefixed with `uv run`.
 
 | Command | Purpose |
 |---|---|
-| `make install` | `uv sync --extra dev --extra nixtla` + editable install + kaggle auth |
+| `make install` | `uv sync --extra dev --extra nixtla --extra toto` + editable install + kaggle auth |
 | `make download` | Fetch competition CSVs into `data/` |
 | `make train CONFIG=config/foo.yaml RUN_NAME=bar` | Train LightGBM model |
 | `make train-nixtla CONFIG=config/nixtla.yaml RUN_NAME=bar` | Train nixtla stats baseline |
-| `make benchmark` | Train both LightGBM + nixtla, print comparison table |
+| `make train-toto CONFIG=config/toto.yaml RUN_NAME=bar` | Zero-shot TOTO foundation model forecast |
+| `make benchmark` | Train LightGBM + nixtla + TOTO, print comparison table |
+| `make benchmark-toto` | Run TOTO zero-shot forecast only |
+| `make compare` | Show existing run metrics table (no training/submission) |
 | `make submit-best` | Pick lowest-RMSLE run, submit to Kaggle |
 | `make predict` | `uv run python scripts/predict.py $(ARGS)` |
-| `make test` | `uv run pytest tests/ -v` |
-| `make lint` | `ruff check src/ scripts/ tests/` |
-| `make format` | `ruff format ... --check` |
+| `make test` | `uv run python -m pytest tests/ -v` |
+| `make lint` | `uv run python -m ruff check src/ scripts/ tests/` |
+| `make format` | `uv run python -m ruff format ... --check` |
 | `make format-fix` | Apply ruff formatting |
 | `make submit SUBMISSION_FILE=... SUBMISSION_MSG="..."` | Upload to Kaggle |
 
@@ -28,6 +31,7 @@ Verification: `make lint && make format && make test`.
 - **Package** `src/store_sales/`: `data.py` (loaders + merges), `features.py` (`TimeSeriesFeatureEngineer` with lags/rolling/date features), `models.py` (`TimeSeriesModel`), `metrics.py` (`rmsle`), `tracking.py` (run logger), `nixtla_pipeline.py` (Nixtla long-format stats/ML baselines).
 - **Data flow**: `load_data()` returns dict of tables → `merge_tables()` joins stores/oil/holidays/transactions → `create_lag_features()` builds lags/rolling on sorted store-family history → `timeseries_split()` holds last N days for validation → `TimeSeriesModel.fit()` trains on pre-split data.
 - **Nixtla data flow**: `merge_tables()` → `to_long()` reshapes to `unique_id="{store}_{family}", ds, y` → `cross_validate()` scores stats models (SeasonalNaive/Theta/AutoETS) → `fit_predict()` generates forecast → `to_submission()` pivots back to Kaggle `id, sales` layout.
+- **TOTO data flow**: `merge_tables()` → `_to_wide()` pivots to (date × series) matrix → `Toto2Model.forecast()` zero-shot → `_to_submission()` maps quantile predictions to Kaggle layout. All exogenous variables are ignored (TOTO 2.0 zero-shot uses only target history).
 - **Config-driven**: YAML in `config/` controls features, model hyperparams, time-series split. `config/baseline.yaml` (LightGBM), `config/nixtla.yaml` (stats), `config/experiments/*` (variants).
 - **Each `make train`** creates `outputs/runs/<timestamp>_<name>/` with frozen `config.yaml`, `metrics.json`, `models/model.joblib`, and `submission.csv`.
 

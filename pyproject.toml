@@ -3,7 +3,7 @@ name = "kcom-store-sales"
 version = "0.1.0"
 description = "Kaggle: Store Sales — Time Series Forecasting"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "kaggle>=2.2",
     "numpy>=1.24",
@@ -16,6 +16,7 @@ dependencies = [
     "joblib>=1.3",
     "tqdm>=4.66",
     "python-dotenv>=1.0",
+    "orjson>=3.10",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,9 @@ nixtla = [
     "statsforecast>=2.0",
     "mlforecast>=1.0",
     "utilsforecast>=0.2.12",
+]
+toto = [
+    "toto-2>=2.0",
 ]
 
 [build-system]
