@@ -25,6 +25,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         drop_cols: list[str] | None = None,
         lag_config: list[list] | None = None,
         rolling_config: list[dict] | None = None,
+        ref_date: str | None = None,
     ):
         self.date_col = date_col
         self.store_col = store_col
@@ -34,8 +35,11 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         self.drop_cols = drop_cols or []
         self.lag_config = lag_config or []
         self.rolling_config = rolling_config or []
+        self.ref_date = pd.Timestamp(ref_date) if ref_date else None
 
     def fit(self, X: pd.DataFrame, y=None) -> TimeSeriesFeatureEngineer:
+        if self.date_col in X.columns and self.ref_date is None:
+            self.ref_date = pd.to_datetime(X[self.date_col]).min()
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -44,6 +48,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         # --- Date features ---
         if self.date_col in X.columns:
             dt = pd.to_datetime(X[self.date_col])
+            ref = self.ref_date if self.ref_date is not None else dt.min()
             feat_map = {
                 "year": dt.dt.year,
                 "month": dt.dt.month,
@@ -53,6 +58,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
                 "weekofyear": dt.dt.isocalendar().week.astype(int),
                 "dayofyear": dt.dt.dayofyear,
                 "is_weekend": (dt.dt.dayofweek >= 5).astype(int),
+                "time_step": (dt - ref).dt.days,
             }
             for feat in self.date_features:
                 if feat in feat_map:
@@ -171,6 +177,7 @@ def make_features(
     )
 
     train_feat, test_feat = engineer.create_lag_features(train, test, cfg["competition"]["target"])
+    engineer.fit(train_feat)
     train_feat = engineer.transform(train_feat)
     test_feat = engineer.transform(test_feat)
 

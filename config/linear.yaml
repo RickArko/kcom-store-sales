@@ -1,0 +1,60 @@
+competition:
+  name: store-sales-time-series-forecasting
+  url: https://www.kaggle.com/competitions/store-sales-time-series-forecasting
+  metric: rmsle
+  target: sales
+  id_col: id
+
+paths:
+  data: data/
+  outputs: outputs/
+  submissions: outputs/submissions/
+  models: models/
+
+data:
+  train_file: train.csv
+  test_file: test.csv
+  stores_file: stores.csv
+  oil_file: oil.csv
+  holidays_file: holidays_events.csv
+  transactions_file: transactions.csv
+  sample_submission: sample_submission.csv
+
+features:
+  drop_cols:
+    - id
+    - sales
+    - city
+    - state
+    - store_type
+    - cluster
+  date_features:
+    - year
+    - month
+    - dayofweek
+    - dayofmonth
+    - quarter
+    - weekofyear
+    - dayofyear
+    - is_weekend
+    - time_step
+  lag_features:
+    - [sales, [1, 7, 14, 28]]
+  rolling_features:
+    - col: sales
+      windows: [7, 14, 28, 56]
+      aggs: [mean, std, min, max]
+  date_col: date
+  store_col: store_nbr
+  family_col: family
+  onpromotion_col: onpromotion
+
+model:
+  type: linear
+  alpha: 1.0
+  fit_intercept: true
+
+timeseries:
+  test_period_days: 16
+  min_train_date: "2013-01-01"
+  max_train_date: "2017-08-15"

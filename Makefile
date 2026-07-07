@@ -7,7 +7,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= "baseline: LightGBM with lag/rolling features"
 
-.PHONY: all install download train train-nixtla benchmark submit-best predict submit test lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear benchmark submit-best predict submit test plot-daily lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -57,6 +57,9 @@ train:
 train-nixtla:
 	@uv run python scripts/train_nixtla.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
 
+train-linear:
+	@uv run python scripts/train_linear.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
+
 benchmark:
 	@echo "========================================================"
 	@echo "  Benchmark: LightGBM baseline vs Nixtla stats baseline"
@@ -95,6 +98,9 @@ submit:
 
 test:
 	@uv run pytest tests/ -v $(ARGS)
+
+plot-daily:
+	@uv run python scripts/plot_daily_aggregate.py $(ARGS)
 
 lint:
 	@uv run ruff check src/ scripts/ tests/
