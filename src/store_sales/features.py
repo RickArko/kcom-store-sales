@@ -28,6 +28,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         rolling_config: list[dict] | None = None,
         ref_date: str | None = None,
         fourier_config: dict[str, list[int]] | None = None,
+        holiday_dates: list[str] | None = None,
     ):
         self.date_col = date_col
         self.store_col = store_col
@@ -39,6 +40,7 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         self.rolling_config = rolling_config or []
         self.ref_date = pd.Timestamp(ref_date) if ref_date else None
         self.fourier_config = fourier_config or {}
+        self.holiday_dates = sorted(pd.to_datetime(holiday_dates)) if holiday_dates else None
 
     def fit(self, X: pd.DataFrame, y=None) -> TimeSeriesFeatureEngineer:
         if self.date_col in X.columns and self.ref_date is None:
@@ -83,6 +85,24 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
                     angle = 2 * np.pi * h * vals / period
                     X[f"fourier_{col}_sin_{h}"] = np.sin(angle)
                     X[f"fourier_{col}_cos_{h}"] = np.cos(angle)
+
+        # --- Holiday distance features ---
+        if (
+            self.date_col in X.columns
+            and self.holiday_dates is not None
+            and len(self.holiday_dates) > 0
+        ):
+            dt_ns = pd.to_datetime(X[self.date_col]).values.astype("datetime64[ns]")
+            hd_ns = np.array(self.holiday_dates, dtype="datetime64[ns]")
+            idx = np.searchsorted(hd_ns, dt_ns, side="right")
+            # Days since the most recent past holiday
+            prev_ix = np.clip(idx - 1, 0, len(hd_ns) - 1)
+            prev_holiday = hd_ns[prev_ix]
+            X["days_since_holiday"] = ((dt_ns - prev_holiday) / np.timedelta64(1, "D")).astype(int)
+            # Days until the next holiday (0 if the date itself is a holiday)
+            next_ix = np.clip(idx, 0, len(hd_ns) - 1)
+            next_holiday = hd_ns[next_ix]
+            X["days_until_holiday"] = ((next_holiday - dt_ns) / np.timedelta64(1, "D")).astype(int)
 
         # --- Categorical encoding (LightGBM rejects str/object dtype) ---
         for col in [self.store_col, self.family_col]:
@@ -182,6 +202,7 @@ def make_features(
     train: pd.DataFrame,
     test: pd.DataFrame,
     cfg: dict,
+    holiday_dates: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Convenience: build feature engineer from config and apply."""
     feat_cfg = cfg["features"]
@@ -195,6 +216,7 @@ def make_features(
         lag_config=feat_cfg.get("lag_features", []),
         rolling_config=feat_cfg.get("rolling_features", []),
         fourier_config=feat_cfg.get("fourier_features", None),
+        holiday_dates=holiday_dates,
     )
 
     train_feat, test_feat = engineer.create_lag_features(train, test, cfg["competition"]["target"])

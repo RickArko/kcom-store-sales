@@ -16,6 +16,7 @@ All Python invocations **must** be prefixed with `uv run`.
 | `make benchmark` | Train LightGBM + nixtla + TOTO, print comparison table |
 | `make benchmark-toto` | Run TOTO zero-shot forecast only |
 | `make compare` | Show existing run metrics table (no training/submission) |
+| `make compare-cv` | Multi-window CV with recursive evaluation on baseline config |
 | `make submit-best` | Pick lowest-RMSLE run, submit to Kaggle |
 | `make predict` | `uv run python scripts/predict.py $(ARGS)` |
 | `make test` | `uv run python -m pytest tests/ -v` |

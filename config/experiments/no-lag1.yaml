@@ -33,7 +33,7 @@ features:
     - quarter
     - weekofyear
   lag_features:
-    - [sales, [1, 7, 14, 28]]
+    - [sales, [7, 14, 28, 365]]
   rolling_features:
     - col: sales
       windows: [7, 14, 28]

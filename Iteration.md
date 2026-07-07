@@ -95,3 +95,17 @@ make train CONFIG=config/experiments/my_idea.yaml RUN_NAME=v001
 - **External data** — add weather, exchange rates
 - **Time-series CV** — expanding window CV instead of fixed holdout
 - **Post-processing** — clip outliers, cap at max historical sales per store-family
+
+
+### Run CV
+
+```bash
+# Multi-window CV with recursive evaluation
+make compare-cv
+
+# Quick smoke test with no-lag1 config
+make train CONFIG=config/experiments/no-lag1.yaml RUN_NAME=no-lag1-test
+
+# Full CV on no-lag1 variant
+uv run python scripts/train.py --config config/experiments/no-lag1.yaml --cv --run-name no-lag1-cv
+```

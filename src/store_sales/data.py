@@ -120,3 +120,45 @@ def timeseries_split(
         split_date,
     )
     return train_df, val_df
+
+
+def walk_forward_split(
+    train: pd.DataFrame,
+    windows: list[int] | None = None,
+    date_col: str = "date",
+) -> list[tuple[pd.DataFrame, pd.DataFrame, str]]:
+    """Create multiple train/val splits at different cut points.
+
+    Each split holds out the last N days for validation and uses everything
+    before that for training.  Returns (train_df, val_df, label) tuples.
+
+    Parameters
+    ----------
+    windows : list[int], optional
+        Number of validation days for each split (default [16, 30, 60, 90]).
+    """
+    if windows is None:
+        windows = [16, 30, 60, 90]
+    dates = sorted(train[date_col].unique())
+    splits: list[tuple[pd.DataFrame, pd.DataFrame, str]] = []
+    for n_days in sorted(set(windows)):
+        if n_days >= len(dates):
+            logger.warning("  Skipping window %d (only %d dates available)", n_days, len(dates))
+            continue
+        split_date = dates[-n_days]
+        train_df = train[train[date_col] < split_date].copy()
+        val_df = train[train[date_col] >= split_date].copy()
+        label = f"val_{n_days}d"
+        logger.info(
+            "  WFV split %s: train %s rows (→%s), val %s rows (%s→)",
+            label,
+            len(train_df),
+            split_date,
+            len(val_df),
+            split_date,
+        )
+        splits.append((train_df, val_df, label))
+    if not splits:
+        msg = f"No valid walk-forward windows for {windows} (only {len(dates)} dates)"
+        raise ValueError(msg)
+    return splits
