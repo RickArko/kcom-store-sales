@@ -74,6 +74,9 @@ make submit SUBMISSION_FILE=outputs/runs/<TIMESTAMP>_<NAME>/submission.csv \
 
 # Auto-pick best full run and submit it
 make submit-best
+
+# Submit toto
+make submit-toto SUBMISSION_MSG="toto-22m zero-shot"
 ```
 
 `make submit-best` runs `pick_best.py --scope full` (lowest `val_rmsle` among
