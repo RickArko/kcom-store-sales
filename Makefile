@@ -1,6 +1,10 @@
 # Load optional .env (settings here are overridden by command-line args)
 -include .env
 
+# Tell uv exactly where the project venv is (avoids stale VIRTUAL_ENV)
+UV_PROJECT_ENVIRONMENT ?= .venv
+export UV_PROJECT_ENVIRONMENT
+
 COMPETITION := store-sales-time-series-forecasting
 DATA_DIR   := data
 TOKEN_FILE := .kaggle/access_token
@@ -100,7 +104,7 @@ submit:
 		-c $(COMPETITION) --show
 
 test:
-	@uv run pytest tests/ -v $(ARGS)
+	@uv run python -m pytest tests/ -v $(ARGS)
 
 benchmark-linear:
 	@uv run python scripts/compare_models.py $(ARGS)
@@ -121,13 +125,13 @@ plot-daily:
 	@uv run python scripts/plot_daily_aggregate.py $(ARGS)
 
 lint:
-	@uv run ruff check src/ scripts/ tests/
+	@uv run python -m ruff check src/ scripts/ tests/
 
 format:
-	@uv run ruff format src/ scripts/ tests/ --check
+	@uv run python -m ruff format src/ scripts/ tests/ --check
 
 format-fix:
-	@uv run ruff format src/ scripts/ tests/
+	@uv run python -m ruff format src/ scripts/ tests/
 
 .uv_sync: pyproject.toml uv.lock
 	uv sync --extra dev --extra nixtla
