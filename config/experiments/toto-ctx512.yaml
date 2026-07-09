@@ -2,7 +2,6 @@ run_scope: full
 
 competition:
   name: store-sales-time-series-forecasting
-  url: https://www.kaggle.com/competitions/store-sales-time-series-forecasting
   metric: rmsle
   target: sales
   id_col: id
@@ -25,12 +24,11 @@ data:
 toto:
   model_name: Datadog/Toto-2.0-22m
   horizon: 16
-  decode_block_size: null   # single pass (horizon=16 ≤ patch_size=32 → 1 patch)
-  val_days: 16              # held-out validation period length
-  # --- Tuned parameters (see config/experiments/toto-*.yaml for ablations) ---
-  context_length: 768       # last 768 days as lookback (best val_rmsle=0.4597)
-  variate_batch_size: 256   # chunk variates for memory safety (no accuracy impact)
-  log_transform: false      # log1p hurts (TOTO has internal normalization)
+  decode_block_size: 768
+  val_days: 16
+  context_length: 512       # last 512 days as lookback
+  variate_batch_size: null
+  log_transform: false
 
 timeseries:
   test_period_days: 16

@@ -41,6 +41,8 @@ def main() -> None:
     logger.info("Store Sales — TOTO Zero-Shot Forecasting")
     logger.info("=" * 60)
 
+    total_start = time.time()
+
     # -- 1. Load data --------------------------------------------------
     logger.info("[1/5] Loading data ...")
     t0 = time.time()
@@ -53,6 +55,9 @@ def main() -> None:
     pipe = TotoPipeline(
         model_name=toto_cfg["model_name"],
         decode_block_size=toto_cfg.get("decode_block_size"),
+        context_length=toto_cfg.get("context_length"),
+        variate_batch_size=toto_cfg.get("variate_batch_size"),
+        log_transform=toto_cfg.get("log_transform", False),
     )
 
     # -- 3. Validation -------------------------------------------------
@@ -90,6 +95,9 @@ def main() -> None:
                 "horizon": toto_cfg.get("horizon", 16),
                 "val_days": toto_cfg.get("val_days", 16),
                 "decode_block_size": toto_cfg.get("decode_block_size"),
+                "context_length": toto_cfg.get("context_length"),
+                "variate_batch_size": toto_cfg.get("variate_batch_size"),
+                "log_transform": toto_cfg.get("log_transform", False),
                 "run_scope": cfg.get("run_scope", "full"),
             }
         )
@@ -103,8 +111,7 @@ def main() -> None:
             str(Path(cfg["paths"]["submissions"]) / "submission.csv"),
         )
 
-    elapsed = time.time() - t0
-    logger.info("Done in %.1fs", elapsed)
+    logger.info("Done in %.1fs", time.time() - total_start)
 
 
 if __name__ == "__main__":

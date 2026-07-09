@@ -15,7 +15,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare compare-cv submit-best submit-toto predict submit test plot-daily lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -89,6 +89,11 @@ benchmark-toto:
 	@echo "  TOTO zero-shot forecast"
 	@echo "========================================================"
 	@uv run python scripts/train_toto.py --config config/toto.yaml --run-name bench-toto
+
+kaggle-kernel:
+	@echo "Copy-paste this script into a Kaggle notebook (GPU + Internet ON):"
+	@echo "========================================================"
+	@cat scripts/kaggle_toto_kernel.py
 
 submit-best:
 	@uv run python scripts/pick_best.py --scope full

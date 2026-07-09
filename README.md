@@ -39,6 +39,7 @@ Only `CONFIG` needs to be set — `RUN_NAME` is optional (timestamp is prepended
 make train CONFIG=config/baseline.yaml RUN_NAME=my-run          # LightGBM
 make train-nixtla CONFIG=config/nixtla.yaml RUN_NAME=my-run     # Nixtla stats
 make train-linear CONFIG=config/linear-log.yaml RUN_NAME=my-run # Ridge (log1p)
+make train-toto CONFIG=config/toto.yaml RUN_NAME=my-run         # TOTO 2.0 zero-shot
 
 # Quick smoke test (5 stores, fast)
 make train CONFIG=config/experiments/smoke.yaml RUN_NAME=my-smoke
@@ -82,6 +83,17 @@ make submit-toto SUBMISSION_MSG="toto-22m zero-shot"
 `make submit-best` runs `pick_best.py --scope full` (lowest `val_rmsle` among
 full-dataset runs with a submission file) then submits it to Kaggle.
 
+### Kaggle Notebook Kernel
+
+A self-contained, copy-pasteable TOTO 2.0 zero-shot script for Kaggle notebooks:
+
+```bash
+make kaggle-kernel    # prints the script; paste into a Kaggle notebook cell
+```
+
+Or copy `scripts/kaggle_toto_kernel.py` directly.  In Kaggle: enable **GPU** +
+**Internet**, run `!pip install -q toto-2` in a cell, then paste and run the script.
+
 ## Pipeline
 
 ```
@@ -103,8 +115,9 @@ Raw Data (train, test, stores, oil, holidays, transactions)
 |---|---|---|---|
 | LightGBM | 0.10 | ~25 min | Best accuracy |
 | Log-Ridge | 0.42 | ~30 s | log1p target + log_sales lags |
-| Ridge (raw) | 1.38 | ~30 s | Original baseline |
+| TOTO 2.0 (zero-shot) | 0.46 | ~13 s | Foundation model, no training |
 | Nixtla (SeasonalNaive) | 0.51 | ~1 s | Stats-only baseline |
+| Ridge (raw) | 1.38 | ~30 s | Original baseline |
 
 ## Development
 
@@ -130,9 +143,9 @@ uv run python scripts/pick_best.py --scope full && make submit
 
 ```
 config/               # YAML configs (features, model, CV, run_scope)
-src/store_sales/       # data.py, features.py, models.py, metrics.py, tracking.py, nixtla_pipeline.py
-scripts/               # train.py, train_nixtla.py, train_linear.py, predict.py
-                       # compare.py, pick_best.py, plot_daily_aggregate.py
+src/store_sales/       # data.py, features.py, models.py, metrics.py, tracking.py, nixtla_pipeline.py, toto_pipeline.py
+scripts/               # train.py, train_nixtla.py, train_linear.py, train_toto.py, predict.py
+                       # compare.py, pick_best.py, plot_daily_aggregate.py, kaggle_toto_kernel.py
 tests/                 # unit tests
 outputs/runs/          # timestamped run artifacts (metrics.json, model.joblib, submission.csv)
 outputs/runs/sandbox/  # smoke / test / debug runs (not included in --scope full)
