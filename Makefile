@@ -15,7 +15,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -149,6 +149,9 @@ benchmark-all:
 
 plot-daily:
 	@uv run python scripts/plot_daily_aggregate.py $(ARGS)
+
+viz-gif: ## Render assets/pipeline.gif from latest experiment runs
+	@uv run python scripts/viz_gif.py $(ARGS)
 
 lint:
 	@uv run python -m ruff check src/ scripts/ tests/

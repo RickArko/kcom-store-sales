@@ -44,6 +44,13 @@ def _predict_run(
     cfg = load_config(str(run_dir / "config.yaml"))
     feat_cfg = cfg["features"]
     target_col = cfg["competition"]["target"]
+    target_transform = cfg.get("model", {}).get("target_transform", "raw")
+
+    run_train = train.copy()
+    run_test = test.copy()
+    if target_transform == "log1p":
+        run_train["log_sales"] = np.log1p(run_train[target_col])
+        run_test["log_sales"] = 0.0
 
     engineer = TimeSeriesFeatureEngineer(
         date_col=feat_cfg.get("date_col", "date"),
@@ -54,10 +61,11 @@ def _predict_run(
         drop_cols=feat_cfg.get("drop_cols", []),
         lag_config=feat_cfg.get("lag_features", []),
         rolling_config=feat_cfg.get("rolling_features", []),
-        ref_date=train["date"].min(),
+        fourier_config=feat_cfg.get("fourier_features"),
+        ref_date=run_train["date"].min(),
     )
 
-    X_lag, X_test_feat = engineer.create_lag_features(train, test, target_col)
+    X_lag, X_test_feat = engineer.create_lag_features(run_train, run_test, target_col)
     engineer.fit(X_lag)
     X_all = engineer.transform(X_lag)
 
@@ -73,7 +81,10 @@ def _predict_run(
             X_all[c] = pd.Categorical(X_all[c], categories=known_cats[c])
         X_all = pd.get_dummies(X_all, columns=cat_cols, drop_first=True, dtype=int)
 
-    preds = np.maximum(ts_model.predict(X_all), 0)
+    preds = ts_model.predict(X_all)
+    if target_transform == "log1p":
+        preds = np.expm1(preds)
+    preds = np.maximum(preds, 0)
 
     result = X_lag[["date"]].copy()
     result["actual"] = y_full.loc[X_lag.index].values

@@ -3,6 +3,12 @@
 Forecast store sales in Ecuador using time-series features, holiday effects, oil prices, and promotional activity.
 [Kaggle Competition](https://www.kaggle.com/competitions/store-sales-time-series-forecasting) · Metric: **RMSLE**
 
+![Store Sales pipeline — features, fit, predict, score (animated GIF)](assets/pipeline.gif)
+
+> Regenerate with `make viz-gif` (after `make benchmark` or `make train-linear`) — reads
+> the latest full-dataset runs, picks a hero store-family series, and writes
+> [`assets/pipeline.gif`](assets/pipeline.gif).
+
 ## Quick Start
 
 ```bash
@@ -126,7 +132,15 @@ make lint           # ruff check
 make format         # ruff format --check
 make format-fix     # apply formatting
 make test           # pytest
+make viz-gif        # render assets/pipeline.gif for README
 ```
+
+## Notebooks
+
+| Notebook | Purpose |
+|---|---|
+| [`notebooks/linear_baseline.ipynb`](notebooks/linear_baseline.ipynb) | Walkthrough of Ridge baseline on smoke subsample |
+| [`notebooks/visualize_predictions.ipynb`](notebooks/visualize_predictions.ipynb) | Multi-model actual vs predicted plots |
 
 ## Experiments
 
