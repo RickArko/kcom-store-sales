@@ -15,10 +15,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from store_sales.data import load_config, load_data, merge_tables
-from store_sales.features import TimeSeriesFeatureEngineer
+from store_sales.data import extract_holiday_dates, load_data, merge_tables
+from store_sales.inference import predict_from_run
 from store_sales.metrics import rmsle
-from store_sales.models import TimeSeriesModel
 
 logger = logging.getLogger(__name__)
 
@@ -174,73 +173,12 @@ def _predict_series(
     family: str,
     val_days: int,
     days_back: int = 120,
+    holiday_dates: list[str] | None = None,
 ) -> HeroSeries:
     """Re-run inference for one store-family series."""
-    cfg = load_config(str(run_dir / "config.yaml"))
-    feat_cfg = cfg["features"]
-    target_col = cfg["competition"]["target"]
-    target_transform = cfg.get("model", {}).get("target_transform", "raw")
-
-    train = train.copy()
-    test = test.copy()
-    if target_transform == "log1p":
-        train["log_sales"] = np.log1p(train[target_col])
-        test["log_sales"] = 0.0
-
-    engineer = TimeSeriesFeatureEngineer(
-        date_col=feat_cfg.get("date_col", "date"),
-        store_col=feat_cfg.get("store_col", "store_nbr"),
-        family_col=feat_cfg.get("family_col", "family"),
-        onpromotion_col=feat_cfg.get("onpromotion_col", "onpromotion"),
-        date_features=feat_cfg.get("date_features", []),
-        drop_cols=feat_cfg.get("drop_cols", []),
-        lag_config=feat_cfg.get("lag_features", []),
-        rolling_config=feat_cfg.get("rolling_features", []),
-        fourier_config=feat_cfg.get("fourier_features"),
-        ref_date=train["date"].min(),
+    combined = predict_from_run(
+        run_dir, train, test, y_full, holiday_dates=holiday_dates
     )
-
-    X_lag, X_test_feat = engineer.create_lag_features(train, test, target_col)
-    engineer.fit(X_lag)
-    X_all = engineer.transform(X_lag)
-    X_test = engineer.transform(X_test_feat)
-
-    ts_model = TimeSeriesModel.load(run_dir / "models" / "model.joblib")
-    model_feats = set(ts_model.feature_names_)
-    cat_cols = [c for c in X_all.columns if X_all[c].dtype.name == "category"]
-    needs_ohe = bool(cat_cols) and not (cat_cols and cat_cols[0] in model_feats)
-
-    if needs_ohe:
-        known_cats = {c: sorted(X_all[c].cat.categories.tolist()) for c in cat_cols}
-        for df in (X_all, X_test):
-            for c in cat_cols:
-                df[c] = pd.Categorical(df[c], categories=known_cats[c])
-        X_all = pd.get_dummies(X_all, columns=cat_cols, drop_first=True, dtype=int)
-        X_test = pd.get_dummies(X_test, columns=cat_cols, drop_first=True, dtype=int)
-        train_cols = list(X_all.columns)
-        for c in set(train_cols) - set(X_test.columns):
-            X_test[c] = 0
-        X_test = X_test[train_cols]
-
-    train_preds = np.maximum(ts_model.predict(X_all), 0)
-    test_preds = np.maximum(ts_model.predict(X_test), 0)
-    if target_transform == "log1p":
-        train_preds = np.expm1(train_preds)
-        test_preds = np.expm1(test_preds)
-        train_preds = np.maximum(train_preds, 0)
-        test_preds = np.maximum(test_preds, 0)
-
-    meta = X_lag[["date", "store_nbr", "family"]].copy()
-    meta["actual"] = y_full.loc[X_lag.index].values
-    meta["predicted"] = train_preds
-    meta["split"] = "train"
-
-    meta_test = X_test_feat[["date", "store_nbr", "family"]].copy()
-    meta_test["actual"] = np.nan
-    meta_test["predicted"] = test_preds
-    meta_test["split"] = "test"
-
-    combined = pd.concat([meta, meta_test], ignore_index=True)
     combined = combined[
         (combined["store_nbr"] == store_nbr) & (combined["family"] == family)
     ].sort_values("date")
@@ -301,6 +239,7 @@ def build_payload(
     logger.info("viz: using runs %s", [p.name for p in run_dirs])
     tables = load_data()
     train, test = merge_tables(tables)
+    holiday_dates = extract_holiday_dates(tables)
     y_full = train["sales"].copy()
     store_nbr, family = _pick_hero(train)
     logger.info("viz: hero series store=%d family=%s", store_nbr, family)
@@ -314,6 +253,7 @@ def build_payload(
         family=family,
         val_days=val_days,
         days_back=days_back,
+        holiday_dates=holiday_dates,
     )
     models = _load_model_runs(run_dirs)
     n_series = train.groupby(["store_nbr", "family"]).ngroups

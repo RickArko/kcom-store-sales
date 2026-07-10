@@ -34,10 +34,17 @@ Edit `.env` to set your preferred defaults:
 CONFIG=config/linear-log.yaml
 RUN_NAME=
 SUBMISSION_MSG="my baseline"
+
+# Optional: Hugging Face token for TOTO downloads (see .env.example)
+# HF_TOKEN=hf_your-token-here
 ```
 
 Command-line arguments override `.env`, which overrides the Makefile defaults.
 Only `CONFIG` needs to be set — `RUN_NAME` is optional (timestamp is prepended).
+
+For TOTO (`make train-toto` or the notebook TOTO section), set `HF_TOKEN` in `.env`
+to avoid unauthenticated Hugging Face Hub rate limits. Create a Read token at
+https://huggingface.co/settings/tokens.
 
 ## Training
 

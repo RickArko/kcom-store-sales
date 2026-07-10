@@ -55,6 +55,14 @@ def load_data(
     return tables
 
 
+def extract_holiday_dates(tables: dict[str, pd.DataFrame]) -> list[str] | None:
+    """Return holiday dates for distance features (matches train.py)."""
+    holidays_df = tables.get("holidays")
+    if holidays_df is not None and not holidays_df.empty:
+        return holidays_df["date"].dropna().unique().tolist()
+    return None
+
+
 def merge_tables(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Merge store metadata and external signals into train/test.
 

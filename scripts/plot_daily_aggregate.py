@@ -19,77 +19,17 @@ import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from store_sales.data import load_config, load_data, merge_tables
-from store_sales.features import TimeSeriesFeatureEngineer
+from store_sales.data import extract_holiday_dates, load_data, merge_tables
+from store_sales.inference import predict_daily_from_run
 from store_sales.metrics import rmsle
-from store_sales.models import TimeSeriesModel
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 sns.set_theme(style="whitegrid")
-
-
-def _predict_run(
-    run_dir: Path,
-    train: pd.DataFrame,
-    test: pd.DataFrame,
-    y_full: pd.Series,
-) -> pd.DataFrame:
-    """Load a run, re-run inference, return (date, actual, predicted) for all train rows."""
-    cfg = load_config(str(run_dir / "config.yaml"))
-    feat_cfg = cfg["features"]
-    target_col = cfg["competition"]["target"]
-    target_transform = cfg.get("model", {}).get("target_transform", "raw")
-
-    run_train = train.copy()
-    run_test = test.copy()
-    if target_transform == "log1p":
-        run_train["log_sales"] = np.log1p(run_train[target_col])
-        run_test["log_sales"] = 0.0
-
-    engineer = TimeSeriesFeatureEngineer(
-        date_col=feat_cfg.get("date_col", "date"),
-        store_col=feat_cfg.get("store_col", "store_nbr"),
-        family_col=feat_cfg.get("family_col", "family"),
-        onpromotion_col=feat_cfg.get("onpromotion_col", "onpromotion"),
-        date_features=feat_cfg.get("date_features", []),
-        drop_cols=feat_cfg.get("drop_cols", []),
-        lag_config=feat_cfg.get("lag_features", []),
-        rolling_config=feat_cfg.get("rolling_features", []),
-        fourier_config=feat_cfg.get("fourier_features"),
-        ref_date=run_train["date"].min(),
-    )
-
-    X_lag, X_test_feat = engineer.create_lag_features(run_train, run_test, target_col)
-    engineer.fit(X_lag)
-    X_all = engineer.transform(X_lag)
-
-    # One-hot encode if needed
-    ts_model = TimeSeriesModel.load(run_dir / "models" / "model.joblib")
-    model_feats = set(ts_model.feature_names_)
-    cat_cols = [c for c in X_all.columns if X_all[c].dtype.name == "category"]
-    needs_ohe = bool(cat_cols) and not (cat_cols and cat_cols[0] in model_feats)
-
-    if needs_ohe:
-        known_cats = {c: sorted(X_all[c].cat.categories.tolist()) for c in cat_cols}
-        for c in cat_cols:
-            X_all[c] = pd.Categorical(X_all[c], categories=known_cats[c])
-        X_all = pd.get_dummies(X_all, columns=cat_cols, drop_first=True, dtype=int)
-
-    preds = ts_model.predict(X_all)
-    if target_transform == "log1p":
-        preds = np.expm1(preds)
-    preds = np.maximum(preds, 0)
-
-    result = X_lag[["date"]].copy()
-    result["actual"] = y_full.loc[X_lag.index].values
-    result["predicted"] = preds
-    return result
 
 
 def main() -> None:
@@ -120,6 +60,7 @@ def main() -> None:
     print("Loading data ...", flush=True)
     tables = load_data()
     train, test = merge_tables(tables)
+    holiday_dates = extract_holiday_dates(tables)
     y_full = train["sales"].copy()
     print(f"  Train: {train.shape}  Test: {test.shape}", flush=True)
 
@@ -133,7 +74,9 @@ def main() -> None:
     for run_dir in run_dirs:
         name = run_dir.name
         print(f"  Predicting {name} ...", flush=True)
-        result = _predict_run(run_dir, train, test, y_full)
+        result = predict_daily_from_run(
+            run_dir, train, test, y_full, holiday_dates=holiday_dates
+        )
         result["date"] = pd.to_datetime(result["date"])
 
         # Filter to window

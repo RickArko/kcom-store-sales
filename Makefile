@@ -4,6 +4,7 @@
 # Tell uv exactly where the project venv is (avoids stale VIRTUAL_ENV)
 UV_PROJECT_ENVIRONMENT ?= .venv
 export UV_PROJECT_ENVIRONMENT
+export HF_TOKEN
 unexport VIRTUAL_ENV  # stale pointer from shell; let uv use UV_PROJECT_ENVIRONMENT
 
 COMPETITION := store-sales-time-series-forecasting

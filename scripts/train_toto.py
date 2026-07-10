@@ -11,6 +11,8 @@ import logging
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from store_sales.data import load_config, load_data, merge_tables
 from store_sales.models import save_submission
 from store_sales.toto_pipeline import TotoPipeline
@@ -33,6 +35,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_dotenv()
     args = parse_args()
     cfg = load_config(args.config)
     toto_cfg = cfg["toto"]
