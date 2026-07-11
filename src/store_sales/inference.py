@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -155,3 +156,59 @@ def predict_daily_from_run(
     result["actual"] = y_full.loc[X_lag.index].values
     result["predicted"] = preds
     return result
+
+
+def _run_model_type(run_dir: Path) -> str:
+    metrics_path = run_dir / "metrics.json"
+    if not metrics_path.exists():
+        return "?"
+    with open(metrics_path) as f:
+        return json.load(f).get("params", {}).get("model_type", "?")
+
+
+def load_submission_predictions(run_dir: Path, test: pd.DataFrame) -> pd.DataFrame:
+    """Load submission.csv and attach test metadata."""
+    sub = pd.read_csv(run_dir / "submission.csv")
+    meta = test[["id", "date", "store_nbr", "family"]].copy()
+    out = meta.merge(sub.rename(columns={"sales": "predicted"}), on="id", how="left")
+    out["actual"] = np.nan
+    out["split"] = "test"
+    out["run"] = run_dir.name
+    out["model_type"] = _run_model_type(run_dir)
+    return out
+
+
+def summarize_submission(run_dir: Path) -> dict:
+    """Summary stats for one run's test submission."""
+    sub = pd.read_csv(run_dir / "submission.csv")
+    with open(run_dir / "metrics.json") as f:
+        metrics = json.load(f)
+    params = metrics.get("params", {})
+    sales = sub["sales"]
+    return {
+        "run": run_dir.name,
+        "model_type": params.get("model_type", "?"),
+        "val_rmsle": metrics.get("metrics", {}).get("val_rmsle"),
+        "test_median": round(float(sales.median()), 3),
+        "test_mean": round(float(sales.mean()), 1),
+        "pct_zero": round((sales == 0).mean() * 100, 1),
+        "pct_lt1": round((sales < 1).mean() * 100, 1),
+    }
+
+
+def compare_submissions(run_dirs: list[Path]) -> pd.DataFrame:
+    """Compare test-submission distributions across runs."""
+    rows = [summarize_submission(d) for d in run_dirs if (d / "submission.csv").exists()]
+    return pd.DataFrame(rows).sort_values("val_rmsle")
+
+
+def load_all_submissions(run_dirs: list[Path], test: pd.DataFrame) -> pd.DataFrame:
+    """Stack test predictions from multiple run submissions."""
+    parts = [
+        load_submission_predictions(d, test)
+        for d in run_dirs
+        if (d / "submission.csv").exists()
+    ]
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)

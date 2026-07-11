@@ -228,7 +228,7 @@ def build_payload(
         run_dirs = discover_runs(
             runs_dir,
             scope=scope,
-            prefer=["log-ridge", "lightgbm", "nixtla"],
+            prefer=["log-ridge", "lightgbm", "nixtla", "toto"],
         )
     if not run_dirs:
         raise FileNotFoundError(
