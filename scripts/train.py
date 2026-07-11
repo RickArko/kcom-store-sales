@@ -16,8 +16,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
+from xgboost import XGBRegressor
 
 from store_sales.data import (
+    apply_preprocessing,
     load_config,
     load_data,
     merge_tables,
@@ -36,12 +38,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _build_model(model_cfg: dict) -> LGBMRegressor:
-    model_cfg.pop("type", "lightgbm")
-    model_cfg.setdefault("random_state", 42)
-    model_cfg.setdefault("verbose", -1)
-    model_cfg.setdefault("n_jobs", -1)
-    return LGBMRegressor(**model_cfg)
+def _build_model(model_cfg: dict) -> LGBMRegressor | XGBRegressor:
+    cfg = model_cfg.copy()
+    model_type = cfg.pop("type", "lightgbm")
+    if model_type == "xgboost":
+        cfg.setdefault("random_state", 42)
+        cfg.setdefault("n_jobs", -1)
+        cfg.pop("verbose", None)
+        return XGBRegressor(**cfg)
+    cfg.setdefault("random_state", 42)
+    cfg.setdefault("verbose", -1)
+    cfg.setdefault("n_jobs", -1)
+    return LGBMRegressor(**cfg)
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,6 +211,9 @@ def main() -> None:
     t0 = time.time()
     tables = load_data(cfg["paths"]["data"])
     train, test = merge_tables(tables)
+    train, prep_stats = apply_preprocessing(train, cfg)
+    if prep_stats:
+        logger.info("  Preprocessing stats: %s", prep_stats)
     logger.info("  Loaded in %.1fs", time.time() - t0)
 
     # Extract holiday dates for feature engineering
@@ -295,6 +306,7 @@ def main() -> None:
                     "n_estimators": model_cfg.get("n_estimators", 500),
                     "val_period_days": val_period,
                     "run_scope": cfg.get("run_scope", "full"),
+                    **({f"prep_{k}": v for k, v in prep_stats.items()} if prep_stats else {}),
                 }
             )
 

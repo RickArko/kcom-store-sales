@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from store_sales.data import load_config
+from store_sales.data import apply_preprocessing, load_config
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.models import TimeSeriesModel
 
@@ -96,7 +96,8 @@ def predict_from_run(
     Columns: date, store_nbr, family, actual, predicted, split (train|test).
     """
     cfg = load_config(str(run_dir / "config.yaml"))
-    run_train, run_test, target_col, target_transform = _prepare_frames(train, test, cfg)
+    run_train_base, _ = apply_preprocessing(train.copy(), cfg)
+    run_train, run_test, target_col, target_transform = _prepare_frames(run_train_base, test, cfg)
 
     engineer = build_feature_engineer(
         cfg,
@@ -137,7 +138,8 @@ def predict_daily_from_run(
 ) -> pd.DataFrame:
     """Re-run inference and return daily aggregate (date, actual, predicted)."""
     cfg = load_config(str(run_dir / "config.yaml"))
-    run_train, run_test, target_col, target_transform = _prepare_frames(train, test, cfg)
+    run_train_base, _ = apply_preprocessing(train.copy(), cfg)
+    run_train, run_test, target_col, target_transform = _prepare_frames(run_train_base, test, cfg)
 
     engineer = build_feature_engineer(
         cfg,
@@ -205,9 +207,7 @@ def compare_submissions(run_dirs: list[Path]) -> pd.DataFrame:
 def load_all_submissions(run_dirs: list[Path], test: pd.DataFrame) -> pd.DataFrame:
     """Stack test predictions from multiple run submissions."""
     parts = [
-        load_submission_predictions(d, test)
-        for d in run_dirs
-        if (d / "submission.csv").exists()
+        load_submission_predictions(d, test) for d in run_dirs if (d / "submission.csv").exists()
     ]
     if not parts:
         return pd.DataFrame()

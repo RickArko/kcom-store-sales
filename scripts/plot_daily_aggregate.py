@@ -74,9 +74,7 @@ def main() -> None:
     for run_dir in run_dirs:
         name = run_dir.name
         print(f"  Predicting {name} ...", flush=True)
-        result = predict_daily_from_run(
-            run_dir, train, test, y_full, holiday_dates=holiday_dates
-        )
+        result = predict_daily_from_run(run_dir, train, test, y_full, holiday_dates=holiday_dates)
         result["date"] = pd.to_datetime(result["date"])
 
         # Filter to window

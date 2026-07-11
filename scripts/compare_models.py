@@ -25,7 +25,13 @@ import yaml
 from sklearn.linear_model import Ridge, TweedieRegressor
 from sklearn.preprocessing import StandardScaler
 
-from store_sales.data import load_config, load_data, merge_tables, timeseries_split
+from store_sales.data import (
+    apply_preprocessing,
+    load_config,
+    load_data,
+    merge_tables,
+    timeseries_split,
+)
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.metrics import rmsle
 from store_sales.models import TimeSeriesModel
@@ -140,7 +146,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--skip-existing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Skip existing runs (default: on). Pass --no-skip-existing to re-train.",
     )
@@ -204,16 +210,17 @@ def _run_linear_experiment(
     target_transform = model_cfg.get("target_transform", "raw")
     t_feat = time.time()
 
+    train_work = train.copy()
+    train_work, _ = apply_preprocessing(train_work, cfg)
+    test_work = test.copy()
+    y_train_full_raw_trimmed = train_work["sales"].copy()
+
     if target_transform == "log1p":
-        train_work = train.copy()
         train_work["log_sales"] = np.log1p(train_work["sales"])
-        test_work = test.copy()
         test_work["log_sales"] = 0
         y_for_model = train_work["log_sales"].copy()
     else:
-        train_work = train
-        test_work = test
-        y_for_model = y_train_full_raw.copy()
+        y_for_model = y_train_full_raw_trimmed.copy()
 
     engineer = TimeSeriesFeatureEngineer(
         date_col=feat_cfg.get("date_col", "date"),
@@ -234,7 +241,7 @@ def _run_linear_experiment(
 
     val_period = cfg.get("timeseries", {}).get("test_period_days", 16)
     X_train_raw, X_val_raw = timeseries_split(X_train_lag, val_period)
-    y_val_raw = y_train_full_raw.loc[X_val_raw.index]
+    y_val_raw = y_train_full_raw_trimmed.loc[X_val_raw.index]
     y_train = y_for_model.loc[X_train_raw.index]
 
     X_train = engineer.transform(X_train_raw)

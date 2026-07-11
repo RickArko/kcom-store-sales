@@ -110,6 +110,83 @@ def merge_tables(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.Data
     return train, test
 
 
+def trim_pre_activation_zeros(
+    train: pd.DataFrame,
+    *,
+    target_col: str = "sales",
+    group_cols: tuple[str, ...] = ("store_nbr", "family"),
+    date_col: str = "date",
+) -> tuple[pd.DataFrame, dict[str, int | float]]:
+    """Drop pre-activation zero rows per group; keep post-first-sale zeros.
+
+    For each (store, family) series, removes rows before the first positive
+    sale. Series that never record a positive sale are left unchanged.
+    """
+    n_before = len(train)
+    if n_before == 0:
+        return train.copy(), {
+            "rows_dropped": 0,
+            "series_trimmed": 0,
+            "pct_dropped": 0.0,
+        }
+
+    sorted_df = train.sort_values([*group_cols, date_col]).copy()
+    groups = list(group_cols)
+    has_positive = sorted_df.groupby(groups, observed=True)[target_col].transform(
+        lambda s: (s > 0).any()
+    )
+    had_sale = sorted_df.groupby(groups, observed=True)[target_col].transform(
+        lambda s: (s > 0).cummax()
+    )
+    keep_mask = (~has_positive) | had_sale
+    trimmed = sorted_df.loc[keep_mask].reset_index(drop=True)
+
+    rows_dropped = n_before - len(trimmed)
+    if rows_dropped:
+        dropped_per_group = (
+            sorted_df.assign(_keep=keep_mask)
+            .groupby(groups, observed=True)["_keep"]
+            .apply(lambda s: (~s).sum())
+        )
+        series_trimmed = int((dropped_per_group > 0).sum())
+    else:
+        series_trimmed = 0
+
+    stats: dict[str, int | float] = {
+        "rows_dropped": rows_dropped,
+        "series_trimmed": series_trimmed,
+        "pct_dropped": round(rows_dropped / n_before * 100, 2),
+    }
+    logger.info(
+        "  Trim pre-activation zeros: dropped %d rows (%.2f%%), %d series trimmed",
+        rows_dropped,
+        stats["pct_dropped"],
+        series_trimmed,
+    )
+    return trimmed, stats
+
+
+def apply_preprocessing(
+    train: pd.DataFrame,
+    cfg: dict,
+) -> tuple[pd.DataFrame, dict[str, int | float]]:
+    """Apply optional preprocessing steps from config to train data."""
+    prep = cfg.get("preprocessing", {})
+    if not prep.get("trim_pre_activation_zeros", False):
+        return train, {}
+
+    feat = cfg.get("features", {})
+    return trim_pre_activation_zeros(
+        train,
+        target_col=cfg["competition"]["target"],
+        group_cols=(
+            feat.get("store_col", "store_nbr"),
+            feat.get("family_col", "family"),
+        ),
+        date_col=feat.get("date_col", "date"),
+    )
+
+
 def timeseries_split(
     train: pd.DataFrame,
     test_period_days: int = 16,

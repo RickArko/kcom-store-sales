@@ -23,7 +23,13 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge, TweedieRegressor
 
-from store_sales.data import load_config, load_data, merge_tables, timeseries_split
+from store_sales.data import (
+    apply_preprocessing,
+    load_config,
+    load_data,
+    merge_tables,
+    timeseries_split,
+)
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.metrics import rmsle
 from store_sales.models import TimeSeriesModel, save_submission
@@ -115,6 +121,9 @@ def main() -> None:
     tables = load_data(cfg["paths"]["data"])
     train, test = merge_tables(tables)
     train, test = _apply_subsample(train, test, cfg)
+    train, prep_stats = apply_preprocessing(train, cfg)
+    if prep_stats:
+        logger.info("  Preprocessing stats: %s", prep_stats)
     logger.info("  Loaded in %.1fs", time.time() - t0)
 
     # -- 2. Feature engineering (lags need full history) ---------------
@@ -234,6 +243,7 @@ def main() -> None:
                 "fit_intercept": model_cfg.get("fit_intercept"),
                 "val_period_days": val_period,
                 "run_scope": cfg.get("run_scope", "full"),
+                **({f"prep_{k}": v for k, v in prep_stats.items()} if prep_stats else {}),
             }
         )
 

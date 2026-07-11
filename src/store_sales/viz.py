@@ -176,9 +176,7 @@ def _predict_series(
     holiday_dates: list[str] | None = None,
 ) -> HeroSeries:
     """Re-run inference for one store-family series."""
-    combined = predict_from_run(
-        run_dir, train, test, y_full, holiday_dates=holiday_dates
-    )
+    combined = predict_from_run(run_dir, train, test, y_full, holiday_dates=holiday_dates)
     combined = combined[
         (combined["store_nbr"] == store_nbr) & (combined["family"] == family)
     ].sort_values("date")

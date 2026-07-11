@@ -16,7 +16,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all benchmark-trim compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean
 
 all: install download benchmark submit-best
 	@echo ""
@@ -145,6 +145,18 @@ benchmark-all:
 	@echo ""
 	@echo "========================================================"
 	@echo "  Results summary (sorted by val_rmsle)"
+	@echo "========================================================"
+	@uv run python scripts/compare.py --sort-by val_rmsle --scope full
+
+benchmark-trim:
+	@echo "========================================================"
+	@echo "  Leading-zero trim benchmark: Log-Ridge + XGBoost A/B"
+	@echo "  (skips existing runs; use FORCE=1 to re-train all)"
+	@echo "========================================================"
+	@uv run python scripts/compare_models.py --experiments config/benchmark-leading-zero-trim.yaml $(if $(FORCE),--no-skip-existing,) $(ARGS)
+	@echo ""
+	@echo "========================================================"
+	@echo "  Trim benchmark results (sorted by val_rmsle)"
 	@echo "========================================================"
 	@uv run python scripts/compare.py --sort-by val_rmsle --scope full
 

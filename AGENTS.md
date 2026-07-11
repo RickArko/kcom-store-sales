@@ -14,6 +14,7 @@ All Python invocations **must** be prefixed with `uv run`.
 | `make train-nixtla CONFIG=config/nixtla.yaml RUN_NAME=bar` | Train nixtla stats baseline |
 | `make train-toto CONFIG=config/toto.yaml RUN_NAME=bar` | Zero-shot TOTO foundation model forecast |
 | `make benchmark` | Train LightGBM + nixtla + TOTO, print comparison table |
+| `make benchmark-trim` | Log-Ridge + XGBoost with/without pre-activation zero trim |
 | `make benchmark-toto` | Run TOTO zero-shot forecast only |
 | `make kaggle-kernel` | Generate Kaggle notebook kernel script (self-contained) |
 | `make compare` | Show existing run metrics table (no training/submission) |
@@ -32,10 +33,10 @@ Verification: `make lint && make format && make test`.
 ## Architecture
 
 - **Package** `src/store_sales/`: `data.py` (loaders + merges), `features.py` (`TimeSeriesFeatureEngineer` with lags/rolling/date features), `models.py` (`TimeSeriesModel`), `metrics.py` (`rmsle`), `tracking.py` (run logger), `nixtla_pipeline.py` (Nixtla long-format stats/ML baselines), `viz.py` (animated pipeline GIF).
-- **Data flow**: `load_data()` returns dict of tables → `merge_tables()` joins stores/oil/holidays/transactions → `create_lag_features()` builds lags/rolling on sorted store-family history → `timeseries_split()` holds last N days for validation → `TimeSeriesModel.fit()` trains on pre-split data.
+- **Data flow**: `load_data()` returns dict of tables → `merge_tables()` joins stores/oil/holidays/transactions → optional `apply_preprocessing()` (e.g. `trim_pre_activation_zeros`) → `create_lag_features()` builds lags/rolling on sorted store-family history → `timeseries_split()` holds last N days for validation → `TimeSeriesModel.fit()` trains on pre-split data.
 - **Nixtla data flow**: `merge_tables()` → `to_long()` reshapes to `unique_id="{store}_{family}", ds, y` → `cross_validate()` scores stats models (SeasonalNaive/Theta/AutoETS) → `fit_predict()` generates forecast → `to_submission()` pivots back to Kaggle `id, sales` layout.
 - **TOTO data flow**: `merge_tables()` → `_to_wide()` pivots to (date × series) matrix → `_forecast_wide()` optionally trims to `context_length` (tuned: 768) and chunks variates by `variate_batch_size` (256) for memory safety → `Toto2Model.forecast()` zero-shot median quantile → `_to_submission()` vectorized mapping to Kaggle `id, sales` layout. All exogenous variables are ignored (TOTO 2.0 zero-shot uses only target history). Tuned params: `context_length=768`, `variate_batch_size=256`, `log_transform=false`, `decode_block_size=null` (single pass, horizon ≤ patch_size). Val RMSLE: 0.4597.
-- **Config-driven**: YAML in `config/` controls features, model hyperparams, time-series split. `config/baseline.yaml` (LightGBM), `config/nixtla.yaml` (stats), `config/experiments/*` (variants).
+- **Config-driven**: YAML in `config/` controls features, model hyperparams, time-series split, and `preprocessing.trim_pre_activation_zeros`. `config/baseline.yaml` (LightGBM), `config/xgboost.yaml` (XGBoost), `config/nixtla.yaml` (stats), `config/experiments/*` (variants), `config/benchmark-leading-zero-trim.yaml` (trim A/B).
 - **Each `make train`** creates `outputs/runs/<timestamp>_<name>/` with frozen `config.yaml`, `metrics.json`, `models/model.joblib`, and `submission.csv`.
 
 ## Conventions

@@ -205,6 +205,9 @@ def make_features(
     holiday_dates: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Convenience: build feature engineer from config and apply."""
+    from store_sales.data import apply_preprocessing
+
+    train, _ = apply_preprocessing(train, cfg)
     feat_cfg = cfg["features"]
     engineer = TimeSeriesFeatureEngineer(
         date_col=feat_cfg.get("date_col", "date"),

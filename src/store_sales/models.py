@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.base import clone
+from xgboost import XGBRegressor
 
 from store_sales.metrics import rmsle
 
@@ -16,10 +17,12 @@ logger = logging.getLogger(__name__)
 
 MODEL_REGISTRY: dict[str, type] = {
     "lightgbm": LGBMRegressor,
+    "xgboost": XGBRegressor,
 }
 
 SEED_PARAM_MAP: dict[str, str] = {
     "lightgbm": "random_state",
+    "xgboost": "random_state",
 }
 
 
