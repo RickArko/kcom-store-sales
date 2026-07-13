@@ -16,7 +16,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all benchmark-trim compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all benchmark-trim compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean smoke-e2e
 
 all: install download benchmark submit-best
 	@echo ""
@@ -62,6 +62,9 @@ download:
 
 train:
 	@uv run python scripts/train.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
+
+smoke-e2e:  ## Fast dogfood train via kaggle_ml tracker + smoke config
+	@uv run python scripts/train.py --config config/experiments/smoke.yaml --run-name smoke
 
 train-nixtla:
 	@uv run python scripts/train_nixtla.py --config $(CONFIG) $(if $(RUN_NAME),--run-name $(RUN_NAME),) $(ARGS)
