@@ -1,0 +1,67 @@
+# Data files (download from Kaggle)
+data/*
+!data/.gitkeep
+*.csv
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Outputs / Submissions
+outputs/submissions/*
+!outputs/submissions/.gitkeep
+submissions/
+
+# Models
+models/
+*.pkl
+*.joblib
+*.cbm
+*.txt.bst
+
+# uv
+.uv/
+.uv_sync
+
+# Kaggle credentials
+.kaggle/*
+!.kaggle/*.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+mlruns/
+
+# CatBoost
+catboost_info/
+
+outputs/runs/*
+.ai/*

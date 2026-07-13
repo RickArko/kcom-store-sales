@@ -1,0 +1,19 @@
+# Leading-zero trim benchmark: linear + XGBoost, with/without trim.
+# Each entry: label (display name), config (path to model YAML), script (training script stem).
+
+experiments:
+  - label: "Log-Ridge"
+    config: config/linear-log.yaml
+    script: train_linear
+
+  - label: "Log-Ridge+trim"
+    config: config/experiments/linear-log-trim.yaml
+    script: train_linear
+
+  - label: "XGBoost"
+    config: config/xgboost.yaml
+    script: train
+
+  - label: "XGBoost+trim"
+    config: config/experiments/xgboost-trim.yaml
+    script: train
