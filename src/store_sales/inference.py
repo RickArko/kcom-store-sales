@@ -87,16 +87,22 @@ def predict_from_run(
     run_dir: Path,
     train: pd.DataFrame,
     test: pd.DataFrame,
-    y_full: pd.Series,
+    y_full: pd.Series | None = None,
     *,
     holiday_dates: list[str] | None = None,
 ) -> pd.DataFrame:
     """Load a run, re-run inference, return per-row actuals and predictions.
 
     Columns: date, store_nbr, family, actual, predicted, split (train|test).
+
+    ``y_full`` is accepted for backward compatibility but ignored — actuals are
+    taken from the post-preprocessing train frame so trim/index changes align.
     """
+    _ = y_full
     cfg = load_config(str(run_dir / "config.yaml"))
     run_train_base, _ = apply_preprocessing(train.copy(), cfg)
+    # Actuals must come from the post-preprocessing frame (trim may reset index).
+    y_actual = run_train_base[cfg["competition"]["target"]].copy()
     run_train, run_test, target_col, target_transform = _prepare_frames(run_train_base, test, cfg)
 
     engineer = build_feature_engineer(
@@ -116,7 +122,7 @@ def predict_from_run(
     test_preds = _decode_predictions(ts_model.predict(X_test), target_transform)
 
     meta = X_lag[["date", "store_nbr", "family"]].copy()
-    meta["actual"] = y_full.loc[X_lag.index].values
+    meta["actual"] = y_actual.loc[X_lag.index].values
     meta["predicted"] = train_preds
     meta["split"] = "train"
 
@@ -132,13 +138,15 @@ def predict_daily_from_run(
     run_dir: Path,
     train: pd.DataFrame,
     test: pd.DataFrame,
-    y_full: pd.Series,
+    y_full: pd.Series | None = None,
     *,
     holiday_dates: list[str] | None = None,
 ) -> pd.DataFrame:
     """Re-run inference and return daily aggregate (date, actual, predicted)."""
+    _ = y_full
     cfg = load_config(str(run_dir / "config.yaml"))
     run_train_base, _ = apply_preprocessing(train.copy(), cfg)
+    y_actual = run_train_base[cfg["competition"]["target"]].copy()
     run_train, run_test, target_col, target_transform = _prepare_frames(run_train_base, test, cfg)
 
     engineer = build_feature_engineer(
@@ -155,7 +163,7 @@ def predict_daily_from_run(
     preds = _decode_predictions(ts_model.predict(X_all), target_transform)
 
     result = X_lag[["date"]].copy()
-    result["actual"] = y_full.loc[X_lag.index].values
+    result["actual"] = y_actual.loc[X_lag.index].values
     result["predicted"] = preds
     return result
 

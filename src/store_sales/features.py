@@ -140,6 +140,9 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         to avoid lookahead leakage.
         """
         n_train = len(train)
+        # Preserve caller's train index so y.loc[X.index] stays aligned after
+        # we drop first-row-per-group. Work on a positional RangeIndex internally.
+        train_index = train.index.to_numpy()
         combined = pd.concat([train, test], axis=0, ignore_index=True)
         combined["_is_train"] = [True] * n_train + [False] * (len(combined) - n_train)
         combined = combined.sort_values([self.store_col, self.family_col, self.date_col])
@@ -175,9 +178,10 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
 
         # Split back — filter by _is_train flag (NOT positional, since dropna
         # removed first-row-per-group train rows, scrambling positional order).
-        # Train keeps its original 0..n_train-1 index so it aligns with y.
         train_feat = combined[combined["_is_train"]].drop(columns=["_is_train"])
         test_feat = combined[~combined["_is_train"]].drop(columns=["_is_train"])
+        # Map positional concat indices back to the caller's train index.
+        train_feat.index = train_index[train_feat.index.to_numpy()]
         # Preserve a row-order proxy so callers can rejoin to the original test
         # frame (which is sorted by id). The combined frame was sorted by
         # (store, family, date); we expose that order via the reset RangeIndex.
