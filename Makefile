@@ -16,7 +16,7 @@ RUN_NAME        ?=
 SUBMISSION_FILE ?= outputs/submissions/submission.csv
 SUBMISSION_MSG  ?= baseline: LightGBM with lag/rolling features
 
-.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all benchmark-trim compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean smoke-e2e
+.PHONY: all install download train train-nixtla train-linear train-toto benchmark benchmark-linear benchmark-toto benchmark-all benchmark-trim compare compare-cv submit-best submit-toto kaggle-kernel predict submit test plot-daily viz-gif lint format format-fix clean smoke-e2e audit-metrics audit-metrics-compare
 
 all: install download benchmark submit-best
 	@echo ""
@@ -165,6 +165,12 @@ benchmark-trim:
 
 plot-daily:
 	@uv run python scripts/plot_daily_aggregate.py $(ARGS)
+
+audit-metrics: ## Offline Ilya-style metrics audit for a tabular run
+	@uv run python scripts/audit_metrics.py --run-dir $(RUN_DIR) $(ARGS)
+
+audit-metrics-compare: ## Paired bootstrap compare of two tabular runs
+	@uv run python scripts/audit_metrics.py --run-dir $(RUN_DIR_A) --compare-dir $(RUN_DIR_B) $(ARGS)
 
 viz-gif: ## Render assets/pipeline.gif from latest experiment runs
 	@uv run python scripts/viz_gif.py $(ARGS)
