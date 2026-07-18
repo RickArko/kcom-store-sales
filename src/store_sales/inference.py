@@ -8,9 +8,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from store_sales.data import apply_preprocessing, load_config
+from store_sales.data import apply_preprocessing, load_config, timeseries_split
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.models import TimeSeriesModel
+from store_sales.recursive import onehot_align, recursive_forecast
 
 
 def build_feature_engineer(
@@ -93,7 +94,12 @@ def predict_from_run(
 ) -> pd.DataFrame:
     """Load a run, re-run inference, return per-row actuals and predictions.
 
-    Columns: date, store_nbr, family, actual, predicted, split (train|test).
+    Columns: date, store_nbr, family, actual, predicted, split (train|val|test).
+
+    For linear models with lag features, the val and test portions use
+    **recursive** multi-step forecasting (predictions fed back as lags) so the
+    visualization mirrors real test-time conditions.  Train rows use direct
+    in-sample prediction.
 
     ``y_full`` is accepted for backward compatibility but ignored — actuals are
     taken from the post-preprocessing train frame so trim/index changes align.
@@ -101,7 +107,6 @@ def predict_from_run(
     _ = y_full
     cfg = load_config(str(run_dir / "config.yaml"))
     run_train_base, _ = apply_preprocessing(train.copy(), cfg)
-    # Actuals must come from the post-preprocessing frame (trim may reset index).
     y_actual = run_train_base[cfg["competition"]["target"]].copy()
     run_train, run_test, target_col, target_transform = _prepare_frames(run_train_base, test, cfg)
 
@@ -112,10 +117,26 @@ def predict_from_run(
     )
     X_lag, X_test_feat = engineer.create_lag_features(run_train, run_test, target_col)
     engineer.fit(X_lag)
-    X_all = engineer.transform(X_lag)
-    X_test = engineer.transform(X_test_feat)
 
     ts_model = TimeSeriesModel.load(run_dir / "models" / "model.joblib")
+    model_type = cfg.get("model", {}).get("type", "")
+    use_recursive = model_type == "linear" and bool(engineer.lag_config)
+
+    if use_recursive:
+        return _predict_recursive(
+            ts_model,
+            engineer,
+            X_lag,
+            X_test_feat,
+            y_actual,
+            target_col,
+            target_transform,
+            cfg,
+        )
+
+    # --- Direct prediction path (LightGBM, etc.) -----------------------
+    X_all = engineer.transform(X_lag)
+    X_test = engineer.transform(X_test_feat)
     X_all, X_test = _onehot_if_needed(X_all, X_test, ts_model)
 
     train_preds = _decode_predictions(ts_model.predict(X_all), target_transform)
@@ -125,6 +146,73 @@ def predict_from_run(
     meta["actual"] = y_actual.loc[X_lag.index].values
     meta["predicted"] = train_preds
     meta["split"] = "train"
+
+    meta_test = X_test_feat[["date", "store_nbr", "family"]].copy()
+    meta_test["actual"] = np.nan
+    meta_test["predicted"] = test_preds
+    meta_test["split"] = "test"
+
+    return pd.concat([meta, meta_test], ignore_index=True)
+
+
+def _predict_recursive(
+    ts_model: TimeSeriesModel,
+    engineer: TimeSeriesFeatureEngineer,
+    X_lag: pd.DataFrame,
+    X_test_feat: pd.DataFrame,
+    y_actual: pd.Series,
+    target_col: str,
+    target_transform: str,
+    cfg: dict,
+) -> pd.DataFrame:
+    """Recursive val + test prediction for linear models with lag features."""
+    fitted = ts_model.fold_models_[0]
+    feature_names = ts_model.feature_names_
+    lag_target_col = engineer.lag_config[0][0]
+
+    # Known categories from the full training frame (consistent with training).
+    X_all = engineer.transform(X_lag)
+    cat_cols = [c for c in X_all.columns if X_all[c].dtype.name == "category"]
+    known_cats = {c: sorted(X_all[c].cat.categories.tolist()) for c in cat_cols}
+
+    # Train predictions: direct (in-sample) for visualization.
+    X_all_ohe = onehot_align(X_all, known_cats, feature_names)
+    train_preds = _decode_predictions(fitted.predict(X_all_ohe), target_transform)
+
+    # Recursive val prediction (honest — mirrors test-time conditions).
+    val_period = cfg.get("timeseries", {}).get("test_period_days", 16)
+    X_train_raw, X_val_raw = timeseries_split(X_lag, val_period)
+    val_preds = recursive_forecast(
+        fitted,
+        engineer,
+        X_train_raw,
+        X_val_raw,
+        lag_target_col=lag_target_col,
+        target_transform=target_transform,
+        known_cats=known_cats,
+        feature_names=feature_names,
+    )
+
+    # Recursive test prediction.
+    test_preds = recursive_forecast(
+        fitted,
+        engineer,
+        X_lag,
+        X_test_feat,
+        lag_target_col=lag_target_col,
+        target_transform=target_transform,
+        known_cats=known_cats,
+        feature_names=feature_names,
+    )
+
+    meta = X_lag[["date", "store_nbr", "family"]].copy()
+    meta["actual"] = y_actual.loc[X_lag.index].values
+    meta["predicted"] = train_preds
+    meta["split"] = "train"
+    # Override val rows with recursive predictions.
+    val_pred_series = pd.Series(val_preds, index=X_val_raw.index)
+    meta.loc[X_val_raw.index, "predicted"] = val_pred_series
+    meta.loc[X_val_raw.index, "split"] = "val"
 
     meta_test = X_test_feat[["date", "store_nbr", "family"]].copy()
     meta_test["actual"] = np.nan

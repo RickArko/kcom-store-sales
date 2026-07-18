@@ -31,22 +31,22 @@ features:
     - state
     - store_type
     - cluster
-  date_features:
-    - year
-    - month
-    - dayofweek
-    - dayofmonth
-    - quarter
-    - weekofyear
-    - dayofyear
-    - is_weekend
-    - time_step
+    - transactions  # not known for the 16-day test horizon
+  # Numeric date features (month, dayofweek, …) impose a *linear* effect on
+  # sales, which is mis-specified for cyclical seasonality.  Fourier sin/cos
+  # pairs below capture the cycles properly, so raw date features are dropped
+  # to avoid the mis-specification (and time_step trend extrapolation).
+  date_features: []
   lag_features:
     - [log_sales, [1, 7, 14, 28]]
   rolling_features:
     - col: log_sales
-      windows: [7, 14, 28, 56]
-      aggs: [mean, std, min, max]
+      windows: [7]
+      aggs: [mean]
+  # Cyclical seasonality via Fourier pairs (period, harmonics).
+  fourier_features:
+    dayofyear: [1, 2, 3]
+    dayofweek: [1, 2]
   date_col: date
   store_col: store_nbr
   family_col: family

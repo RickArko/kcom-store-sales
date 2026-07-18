@@ -116,9 +116,11 @@ Raw Data (train, test, stores, oil, holidays, transactions)
       • Date features: year, month, dayofweek, quarter, is_weekend, time_step
       • Lag features: sales_{1,7,14,28}d ago (or log_sales for log-Ridge)
       • Rolling features: mean/std/min/max over 7/14/28/56d windows
-      • External signals: dcoilwtico (oil), is_holiday, transactions, onpromotion
+      • Fourier features: dayofyear + dayofweek harmonics (cyclical seasonality)
+      • External signals: dcoilwtico (oil), is_holiday, onpromotion
   → Time-based train/validation split (last 16 days held out)
   → Model (LightGBM, Ridge, Tweedie, or Nixtla stats)
+  → Recursive multi-step forecast (linear: lags updated day-by-day)
   → submission.csv
 ```
 
@@ -127,10 +129,10 @@ Raw Data (train, test, stores, oil, holidays, transactions)
 | Model | Typical RMSLE | Train Time | Notes |
 |---|---|---|---|
 | LightGBM | 0.10 | ~25 min | Best accuracy |
-| Log-Ridge | 0.42 | ~30 s | log1p target + log_sales lags |
 | TOTO 2.0 (zero-shot) | 0.46 | ~13 s | Foundation model, no training |
+| Log-Ridge | 0.51 | ~18 s | log1p + recursive multi-step forecast |
 | Nixtla (SeasonalNaive) | 0.51 | ~1 s | Stats-only baseline |
-| Ridge (raw) | 1.38 | ~30 s | Original baseline |
+| Ridge (raw) | 1.64 | ~30 s | Original baseline |
 
 ## Development
 
@@ -164,7 +166,7 @@ uv run python scripts/pick_best.py --scope full && make submit
 
 ```
 config/               # YAML configs (features, model, CV, run_scope)
-src/store_sales/       # data.py, features.py, models.py, metrics.py, tracking.py, nixtla_pipeline.py, toto_pipeline.py
+src/store_sales/       # data.py, features.py, models.py, metrics.py, recursive.py, tracking.py, nixtla_pipeline.py, toto_pipeline.py
 scripts/               # train.py, train_nixtla.py, train_linear.py, train_toto.py, predict.py
                        # compare.py, pick_best.py, plot_daily_aggregate.py, kaggle_toto_kernel.py
 tests/                 # unit tests

@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 import yaml
 from sklearn.linear_model import Ridge, TweedieRegressor
-from sklearn.preprocessing import StandardScaler
 
 from store_sales.data import (
     apply_preprocessing,
@@ -34,7 +33,7 @@ from store_sales.data import (
 )
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.metrics import rmsle
-from store_sales.models import TimeSeriesModel
+from store_sales.recursive import onehot_align, onehot_fit, recursive_forecast
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -57,38 +56,6 @@ def _build_model(model_cfg: dict) -> Ridge | TweedieRegressor:
             power=power, alpha=alpha, fit_intercept=fit_intercept, random_state=42
         )
     return Ridge(alpha=alpha, fit_intercept=fit_intercept, random_state=42)
-
-
-def _onehot_encode(
-    df: pd.DataFrame, cols: list[str], ref_cats: dict[str, list] | None = None
-) -> pd.DataFrame:
-    for col in cols:
-        if col not in df.columns:
-            continue
-        if ref_cats and col in ref_cats:
-            df[col] = pd.Categorical(df[col], categories=ref_cats[col])
-        else:
-            df[col] = df[col].astype("category")
-    return pd.get_dummies(
-        df, columns=[c for c in cols if c in df.columns], drop_first=True, dtype=int
-    )
-
-
-def _align_ohe(
-    X_train: pd.DataFrame,
-    X_val: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    train_cols = list(X_train.columns)
-    train_cols_set = set(train_cols)
-    for c in train_cols_set - set(X_val.columns):
-        X_val[c] = 0
-    extra = set(X_val.columns) - train_cols_set
-    if extra:
-        X_val = X_val.drop(columns=list(extra))
-    X_val = X_val[train_cols]
-    X_train = X_train.fillna(0)
-    X_val = X_val.fillna(0)
-    return X_train, X_val
 
 
 def _compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
@@ -203,20 +170,25 @@ def _run_linear_experiment(
     test: pd.DataFrame,
     y_train_full_raw: pd.Series,
 ) -> dict:
-    """Run a single linear-model experiment in-process (fast)."""
+    """Run a single linear-model experiment in-process (fast).
+
+    Uses the same recursive multi-step forecasting as ``train_linear.py`` so
+    that val RMSLE numbers are directly comparable to real training runs.
+    """
     cfg = load_config(config_path)
     feat_cfg = cfg["features"]
     model_cfg = cfg["model"]
     target_transform = model_cfg.get("target_transform", "raw")
+    target_col = cfg["competition"]["target"]
     t_feat = time.time()
 
     train_work = train.copy()
     train_work, _ = apply_preprocessing(train_work, cfg)
     test_work = test.copy()
-    y_train_full_raw_trimmed = train_work["sales"].copy()
+    y_train_full_raw_trimmed = train_work[target_col].copy()
 
     if target_transform == "log1p":
-        train_work["log_sales"] = np.log1p(train_work["sales"])
+        train_work["log_sales"] = np.log1p(train_work[target_col])
         test_work["log_sales"] = 0
         y_for_model = train_work["log_sales"].copy()
     else:
@@ -234,9 +206,7 @@ def _run_linear_experiment(
         fourier_config=feat_cfg.get("fourier_features", None),
         ref_date=train_work["date"].min(),
     )
-    X_train_lag, _ = engineer.create_lag_features(
-        train_work, test_work, cfg["competition"]["target"]
-    )
+    X_train_lag, _ = engineer.create_lag_features(train_work, test_work, target_col)
     engineer.fit(X_train_lag)
 
     val_period = cfg.get("timeseries", {}).get("test_period_days", 16)
@@ -245,38 +215,32 @@ def _run_linear_experiment(
     y_train = y_for_model.loc[X_train_raw.index]
 
     X_train = engineer.transform(X_train_raw)
-    X_val = engineer.transform(X_val_raw)
-
-    cat_cols = [c for c in X_train.columns if X_train[c].dtype.name == "category"]
-    known_cats: dict[str, list] = {}
-    for col in cat_cols:
-        known_cats[col] = sorted(X_train[col].cat.categories.tolist())
-    X_train = _onehot_encode(X_train, cat_cols, known_cats)
-    X_val = _onehot_encode(X_val, cat_cols, known_cats)
-    X_train, X_val = _align_ohe(X_train, X_val)
-
-    scaler = StandardScaler()
-    X_train_s = pd.DataFrame(
-        scaler.fit_transform(X_train),
-        columns=X_train.columns,
-        index=X_train.index,
-    )
-    X_val_s = pd.DataFrame(
-        scaler.transform(X_val),
-        columns=X_val.columns,
-        index=X_val.index,
-    )
+    X_train, known_cats, feature_names = onehot_fit(X_train)
     feat_time = time.time() - t_feat
 
     t_train = time.time()
     model = _build_model(model_cfg)
-    ts_model = TimeSeriesModel(model)
-    ts_model.fit(X_train_s, y_train)
+    model.fit(X_train, y_train)
     train_time = time.time() - t_train
 
-    val_preds_log = ts_model.fold_models_[0].predict(X_val_s[ts_model.feature_names_])
-    val_preds = np.expm1(val_preds_log) if target_transform == "log1p" else val_preds_log
-    val_preds = np.maximum(val_preds, 0)
+    lag_target_col = engineer.lag_config[0][0] if engineer.lag_config else target_col
+    use_recursive = bool(engineer.lag_config)
+    if use_recursive:
+        val_preds = recursive_forecast(
+            model,
+            engineer,
+            X_train_raw,
+            X_val_raw,
+            lag_target_col=lag_target_col,
+            target_transform=target_transform,
+            known_cats=known_cats,
+            feature_names=feature_names,
+        )
+    else:
+        X_val = onehot_align(engineer.transform(X_val_raw), known_cats, feature_names)
+        val_preds_log = model.predict(X_val)
+        val_preds = np.expm1(val_preds_log) if target_transform == "log1p" else val_preds_log
+        val_preds = np.maximum(val_preds, 0)
 
     metrics = _compute_metrics(y_val_raw.values, val_preds)
     metrics["train_time_s"] = round(feat_time + train_time, 1)
