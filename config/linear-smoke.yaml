@@ -26,26 +26,22 @@ features:
   drop_cols:
     - id
     - sales
+    - log_sales
     - city
     - state
     - store_type
     - cluster
-  date_features:
-    - year
-    - month
-    - dayofweek
-    - dayofmonth
-    - quarter
-    - weekofyear
-    - dayofyear
-    - is_weekend
-    - time_step
+    - transactions  # not known for the 16-day test horizon
+  date_features: []
   lag_features:
-    - [sales, [1, 7, 14, 28]]
+    - [log_sales, [1, 7, 14, 28]]
   rolling_features:
-    - col: sales
-      windows: [7, 14, 28, 56]
-      aggs: [mean, std, min, max]
+    - col: log_sales
+      windows: [7]
+      aggs: [mean]
+  fourier_features:
+    dayofyear: [1, 2, 3]
+    dayofweek: [1, 2]
   date_col: date
   store_col: store_nbr
   family_col: family
@@ -53,7 +49,9 @@ features:
 
 model:
   type: linear
-  alpha: 0.5
+  linear_type: ridge
+  target_transform: log1p
+  alpha: 1.0
   fit_intercept: true
 
 timeseries:

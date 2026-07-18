@@ -33,6 +33,7 @@ from store_sales.data import (
 from store_sales.features import TimeSeriesFeatureEngineer
 from store_sales.metrics import rmsle
 from store_sales.models import TimeSeriesModel, save_submission
+from store_sales.recursive import onehot_align, onehot_fit, recursive_forecast
 from store_sales.tracking import track_experiment
 
 logging.basicConfig(
@@ -40,8 +41,6 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-7s | %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-_CAT_COLS = ["store_nbr", "family"]
 
 
 def _build_model(model_cfg: dict) -> Ridge | TweedieRegressor:
@@ -54,22 +53,6 @@ def _build_model(model_cfg: dict) -> Ridge | TweedieRegressor:
             power=power, alpha=alpha, fit_intercept=fit_intercept, random_state=42
         )
     return Ridge(alpha=alpha, fit_intercept=fit_intercept, random_state=42)
-
-
-def _onehot_encode(
-    df: pd.DataFrame, cols: list[str], ref_cats: dict[str, list] | None = None
-) -> pd.DataFrame:
-    """One-hot encode categorical columns, optionally restricting to known categories."""
-    for col in cols:
-        if col not in df.columns:
-            continue
-        if ref_cats and col in ref_cats:
-            df[col] = pd.Categorical(df[col], categories=ref_cats[col])
-        else:
-            df[col] = df[col].astype("category")
-    return pd.get_dummies(
-        df, columns=[c for c in cols if c in df.columns], drop_first=True, dtype=int
-    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,67 +154,61 @@ def main() -> None:
     X_train_raw, X_val_raw = timeseries_split(X_train_lag, val_period)
     y_train = y_train_full.loc[X_train_raw.index]
     y_val_raw = y_train_full_raw.loc[X_val_raw.index]
-    X_train = engineer.transform(X_train_raw)
-    X_val = engineer.transform(X_val_raw)
-    X_test_feat = engineer.transform(X_test_feat)
 
-    # -- 4. One-hot encode categoricals for linear regression ----------
+    # -- 4. One-hot encode (fit on train) -------------------------------
     logger.info("[4/6] One-hot encoding categoricals ...")
     t0_oh = time.time()
-    cat_cols = [c for c in X_train.columns if X_train[c].dtype.name == "category"]
-    known_cats: dict[str, list] = {}
-    for col in cat_cols:
-        known_cats[col] = sorted(X_train[col].cat.categories.tolist())
-    X_train = _onehot_encode(X_train, cat_cols, known_cats)
-    X_val = _onehot_encode(X_val, cat_cols, known_cats)
-    X_test_feat = _onehot_encode(X_test_feat, cat_cols, known_cats)
-    # Align columns across train/val/test (test may have different categories)
-    train_cols = list(X_train.columns)
-    train_cols_set = set(train_cols)
-    for df_name in ("val", "test"):
-        df = X_val if df_name == "val" else X_test_feat
-        for c in train_cols_set - set(df.columns):
-            df[c] = 0
-        extra = set(df.columns) - train_cols_set
-        if extra:
-            logger.info("  Dropping %d cols from %s not in train", len(extra), df_name)
-            df.drop(columns=list(extra), inplace=True)
-        if df_name == "val":
-            X_val = df[train_cols]
-        else:
-            X_test_feat = df[train_cols]
-    # Final safety: fill any remaining NaN (future transactions, etc.)
-    for df_name, df in [("train", X_train), ("val", X_val), ("test", X_test_feat)]:
-        n_nan = df.isna().sum().sum()
-        if n_nan:
-            logger.info("  Filling %d NaN in %s", n_nan, df_name)
-            df.fillna(0, inplace=True)
-    logger.info("  Done (%.1fs). Train: %s", time.time() - t0_oh, X_train.shape)
+    X_train = engineer.transform(X_train_raw)
+    X_train, known_cats, feature_names = onehot_fit(X_train)
+    logger.info(
+        "  Train: %s (%d features, %.1fs)",
+        X_train.shape,
+        len(feature_names),
+        time.time() - t0_oh,
+    )
 
-    # -- 5. Build & train model ----------------------------------------
+    # -- 5. Build & train model + recursive validation ------------------
     linear_label = model_cfg.get("linear_type", "ridge")
     logger.info("[5/6] Training %s regression ...", linear_label.title())
     model = _build_model(model_cfg)
 
+    lag_target_col = engineer.lag_config[0][0] if engineer.lag_config else target_col
+    use_recursive = bool(engineer.lag_config)
+    if use_recursive:
+        logger.info(
+            "  Recursive multi-step forecast on %d-day horizon (lags updated day-by-day)",
+            val_period,
+        )
+
     with track_experiment(cfg, run_name=args.run_name) as run:
         ts_model = TimeSeriesModel(model)
         ts_model.fit(X_train, y_train)
+        fitted = ts_model.fold_models_[0]
 
-        # Manual val evaluation (handles target_transform)
-        val_preds_log = ts_model.fold_models_[0].predict(X_val[ts_model.feature_names_])
-        if target_transform == "log1p":
-            val_preds_raw = np.expm1(val_preds_log)
+        if use_recursive:
+            val_preds = recursive_forecast(
+                fitted,
+                engineer,
+                X_train_raw,
+                X_val_raw,
+                lag_target_col=lag_target_col,
+                target_transform=target_transform,
+                known_cats=known_cats,
+                feature_names=feature_names,
+            )
         else:
-            val_preds_raw = val_preds_log
-        val_preds_clamped = np.maximum(val_preds_raw, 0)
-        val_score = rmsle(y_val_raw.values, val_preds_clamped)
+            X_val = onehot_align(engineer.transform(X_val_raw), known_cats, feature_names)
+            val_preds_log = fitted.predict(X_val)
+            val_preds = np.expm1(val_preds_log) if target_transform == "log1p" else val_preds_log
+            val_preds = np.maximum(val_preds, 0)
+        val_score = rmsle(y_val_raw.values, val_preds)
         ts_model.overall_val_score_ = val_score
         ts_model.valid_scores_ = [val_score]
 
         run.log_metrics(
             {
                 "val_rmsle": round(val_score, 6),
-                "n_features": X_train.shape[1],
+                "n_features": len(feature_names),
             }
         )
         run.log_params(
@@ -239,6 +216,7 @@ def main() -> None:
                 "model_type": cfg["model"]["type"],
                 "linear_type": linear_label,
                 "target_transform": target_transform,
+                "recursive": use_recursive,
                 "alpha": model_cfg.get("alpha"),
                 "fit_intercept": model_cfg.get("fit_intercept"),
                 "val_period_days": val_period,
@@ -253,12 +231,22 @@ def main() -> None:
 
         # -- 6. Generate submission ------------------------------------
         logger.info("[6/6] Generating predictions ...")
-        test_preds_log = ts_model.predict(X_test_feat)
-        if target_transform == "log1p":
-            test_preds = np.expm1(test_preds_log)
+        if use_recursive:
+            test_preds = recursive_forecast(
+                fitted,
+                engineer,
+                X_train_lag,
+                X_test_feat,
+                lag_target_col=lag_target_col,
+                target_transform=target_transform,
+                known_cats=known_cats,
+                feature_names=feature_names,
+            )
         else:
-            test_preds = test_preds_log
-        test_preds = np.maximum(test_preds, 0)
+            X_test = onehot_align(engineer.transform(X_test_feat), known_cats, feature_names)
+            test_preds_log = fitted.predict(X_test)
+            test_preds = np.expm1(test_preds_log) if target_transform == "log1p" else test_preds_log
+            test_preds = np.maximum(test_preds, 0)
         if test_ids is not None and len(test_ids) == len(test_preds):
             ids = test_ids
         else:

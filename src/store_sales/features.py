@@ -171,10 +171,13 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
         # forward-fill from the last known value so the model still has features.
         lag_cols = [c for c in combined.columns if "lag_" in c or "roll_" in c]
         train_mask = combined["_is_train"]
-        combined = combined[(~train_mask) | (combined[lag_cols].notna().any(axis=1))].copy()
-        for col in lag_cols:
-            combined[col] = combined.groupby(group_cols)[col].ffill()
-            combined[col] = combined[col].fillna(0)
+        if lag_cols:
+            combined = combined[(~train_mask) | (combined[lag_cols].notna().any(axis=1))].copy()
+            for col in lag_cols:
+                combined[col] = combined.groupby(group_cols)[col].ffill()
+                combined[col] = combined[col].fillna(0)
+        else:
+            combined = combined.copy()
 
         # Split back — filter by _is_train flag (NOT positional, since dropna
         # removed first-row-per-group train rows, scrambling positional order).
